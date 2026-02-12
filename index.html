@@ -1564,7 +1564,7 @@ function InvestorIntel() {
     const cikClean = firm.cik.replace(/^0+/, "");
     const indexRes = await secFetch(`https://www.sec.gov/Archives/edgar/data/${cikClean}/${accession}/`);
     const indexHtml = await indexRes.text();
-    const xmlMatch = indexHtml.match(/href="([^"]*(?:infotable|information_table|13f)[^"]*\.xml)"/i);
+    const xmlMatch = indexHtml.match(/href="([^"]*(?:informationtable|infotable|information_table|13f)[^"]*\.xml)"/i);
     if (!xmlMatch) throw new Error("Could not locate 13F XML in filing index");
 
     const xmlUrl = xmlMatch[1].startsWith('/') || xmlMatch[1].startsWith('http')
