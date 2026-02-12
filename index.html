@@ -1,1 +1,1894 @@
 <!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Investor Intel Pro v3</title>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+  <style>
+    body { margin: 0; padding: 0; }
+    .file-protocol-warning {
+      max-width: 680px; margin: 80px auto; padding: 40px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(135deg, #0a1628, #1a2744); color: #e0e7ef;
+      border-radius: 16px; border: 1px solid #2a3f5f; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .file-protocol-warning h1 { color: #fbbf24; margin-top: 0; font-size: 1.5rem; }
+    .file-protocol-warning h2 { color: #60a5fa; font-size: 1.1rem; margin-top: 28px; }
+    .file-protocol-warning p { line-height: 1.7; color: #94a3b8; }
+    .file-protocol-warning code {
+      background: #1e293b; color: #38bdf8; padding: 3px 8px;
+      border-radius: 4px; font-size: 0.95em; font-family: "SF Mono", Monaco, monospace;
+    }
+    .file-protocol-warning .cmd-block {
+      background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+      padding: 16px 20px; margin: 12px 0; font-family: "SF Mono", Monaco, monospace;
+      font-size: 0.95em; color: #38bdf8; cursor: pointer; position: relative;
+      transition: border-color 0.2s;
+    }
+    .file-protocol-warning .cmd-block:hover { border-color: #60a5fa; }
+    .file-protocol-warning .cmd-block .copy-hint {
+      position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+      color: #475569; font-size: 0.8em;
+    }
+    .file-protocol-warning .or-divider {
+      text-align: center; color: #475569; margin: 20px 0; font-style: italic;
+    }
+    .file-protocol-warning .emoji { font-size: 1.3em; margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script>
+    // Detect file:// protocol BEFORE loading React/Babel
+    if (window.location.protocol === "file:") {
+      var root = document.getElementById("root");
+      root.innerHTML = '<div class="file-protocol-warning">' +
+        '<h1>&#9888;&#65039; Local Server Required</h1>' +
+        '<p>This dashboard fetches live data from <code>data.sec.gov</code> and the Anthropic API. ' +
+        'Browsers block these requests when you open an HTML file directly (<code>file://</code>).</p>' +
+        '<p>You need to serve this file from a local HTTP server. It takes 10 seconds:</p>' +
+        '<h2>Option A &mdash; Use the Launcher Script (easiest)</h2>' +
+        '<p>Double-click <code>launch-investor-intel.command</code> (the file in this same folder). ' +
+        'It starts the server and opens Chrome automatically.</p>' +
+        '<div class="or-divider">&mdash; or &mdash;</div>' +
+        '<h2>Option B &mdash; Manual Terminal Command</h2>' +
+        '<p>Open Terminal, <code>cd</code> to the folder containing this file, and run:</p>' +
+        '<div class="cmd-block" onclick="navigator.clipboard.writeText(this.getAttribute(\'data-cmd\')).then(function(){alert(\'Copied!\')})" data-cmd="python3 server.py">' +
+        'python3 server.py' +
+        '<span class="copy-hint">click to copy</span>' +
+        '</div>' +
+        '<p>Then open: <a href="http://localhost:8080/investor-intel-v3.html" style="color:#60a5fa;">http://localhost:8080/investor-intel-v3.html</a></p>' +
+        '<h2>Why?</h2>' +
+        '<p>Browsers enforce CORS (Cross-Origin Resource Sharing) security. The <code>file://</code> protocol ' +
+        'sends a <code>null</code> origin, which remote servers reject. Running a local HTTP server gives ' +
+        'the page a proper <code>http://localhost</code> origin that servers accept.</p>' +
+        '</div>';
+    }
+  </script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+// ============================================================
+// CUSIP → SECTOR MAPPING (~150 holdings by frequency in 13F filings)
+// Covers major positions + affiliate-relevant tickers
+// ============================================================
+const CUSIP_SECTOR_MAP = {
+  // --- TECHNOLOGY ---
+  "037833100": { ticker: "AAPL", name: "Apple Inc", sector: "Technology", industry: "Consumer Electronics" },
+  "594918104": { ticker: "MSFT", name: "Microsoft Corp", sector: "Technology", industry: "Software" },
+  "67066G104": { ticker: "NVDA", name: "NVIDIA Corp", sector: "Technology", industry: "Semiconductors" },
+  "02079K305": { ticker: "GOOG", name: "Alphabet Inc Cl A", sector: "Technology", industry: "Internet Content" },
+  "02079K107": { ticker: "GOOGL", name: "Alphabet Inc Cl C", sector: "Technology", industry: "Internet Content" },
+  "30303M102": { ticker: "META", name: "Meta Platforms Inc", sector: "Technology", industry: "Internet Content" },
+  "110122108": { ticker: "AVGO", name: "Broadcom Inc", sector: "Technology", industry: "Semiconductors" },
+  "458140100": { ticker: "INTC", name: "Intel Corp", sector: "Technology", industry: "Semiconductors" },
+  "46120E602": { ticker: "INTU", name: "Intuit Inc", sector: "Technology", industry: "Software" },
+  "17275R102": { ticker: "CSCO", name: "Cisco Systems", sector: "Technology", industry: "Networking" },
+  "68389X105": { ticker: "ORCL", name: "Oracle Corp", sector: "Technology", industry: "Software" },
+  "79466L302": { ticker: "CRM", name: "Salesforce Inc", sector: "Technology", industry: "Software" },
+  "00724F101": { ticker: "ADBE", name: "Adobe Inc", sector: "Technology", industry: "Software" },
+  "872540109": { ticker: "TXN", name: "Texas Instruments", sector: "Technology", industry: "Semiconductors" },
+  "035420103": { ticker: "AMAT", name: "Applied Materials", sector: "Technology", industry: "Semiconductor Equipment" },
+  "553015106": { ticker: "LRCX", name: "Lam Research", sector: "Technology", industry: "Semiconductor Equipment" },
+  "607059104": { ticker: "MRVL", name: "Marvell Technology", sector: "Technology", industry: "Semiconductors" },
+  "49271V100": { ticker: "KLAC", name: "KLA Corp", sector: "Technology", industry: "Semiconductor Equipment" },
+  // Ad Tech (Cannonball-relevant)
+  "88339J105": { ticker: "TTD", name: "The Trade Desk", sector: "Technology", industry: "Ad Tech" },
+  "74467Q103": { ticker: "PUBM", name: "PubMatic Inc", sector: "Technology", industry: "Ad Tech" },
+  "55955D100": { ticker: "MGNI", name: "Magnite Inc", sector: "Technology", industry: "Ad Tech" },
+  "226713104": { ticker: "CRTO", name: "Criteo SA", sector: "Technology", industry: "Ad Tech" },
+  "25862V105": { ticker: "DV", name: "DoubleVerify Holdings", sector: "Technology", industry: "Ad Tech" },
+
+  // --- FINANCIAL SERVICES ---
+  "46625H100": { ticker: "JPM", name: "JPMorgan Chase", sector: "Financial Services", industry: "Banks" },
+  "92826C839": { ticker: "V", name: "Visa Inc", sector: "Financial Services", industry: "Credit Services" },
+  "571903202": { ticker: "MA", name: "Mastercard Inc", sector: "Financial Services", industry: "Credit Services" },
+  "172967424": { ticker: "C", name: "Citigroup Inc", sector: "Financial Services", industry: "Banks" },
+  "060505104": { ticker: "BAC", name: "Bank of America", sector: "Financial Services", industry: "Banks" },
+  "949746101": { ticker: "WFC", name: "Wells Fargo", sector: "Financial Services", industry: "Banks" },
+  "38141G104": { ticker: "GS", name: "Goldman Sachs", sector: "Financial Services", industry: "Capital Markets" },
+  "617446448": { ticker: "MS", name: "Morgan Stanley", sector: "Financial Services", industry: "Capital Markets" },
+  "902973304": { ticker: "USB", name: "U.S. Bancorp", sector: "Financial Services", industry: "Banks" },
+  "808513105": { ticker: "SCHW", name: "Charles Schwab", sector: "Financial Services", industry: "Capital Markets" },
+  "053015103": { ticker: "AXP", name: "American Express", sector: "Financial Services", industry: "Credit Services" },
+  "74460D109": { ticker: "PYPL", name: "PayPal Holdings", sector: "Financial Services", industry: "Credit Services" },
+  "084670702": { ticker: "BRK.B", name: "Berkshire Hathaway B", sector: "Financial Services", industry: "Insurance" },
+  "084670108": { ticker: "BRK.A", name: "Berkshire Hathaway A", sector: "Financial Services", industry: "Insurance" },
+
+  // --- HEALTHCARE ---
+  "478160104": { ticker: "JNJ", name: "Johnson & Johnson", sector: "Healthcare", industry: "Pharmaceuticals" },
+  "91324P102": { ticker: "UNH", name: "UnitedHealth Group", sector: "Healthcare", industry: "Healthcare Plans" },
+  "375558103": { ticker: "GILD", name: "Gilead Sciences", sector: "Healthcare", industry: "Biotechnology" },
+  "11135F101": { ticker: "BMY", name: "Bristol-Myers Squibb", sector: "Healthcare", industry: "Pharmaceuticals" },
+  "00287Y109": { ticker: "ABBV", name: "AbbVie Inc", sector: "Healthcare", industry: "Pharmaceuticals" },
+  "023608102": { ticker: "AMGN", name: "Amgen Inc", sector: "Healthcare", industry: "Biotechnology" },
+  "464287614": { ticker: "ISRG", name: "Intuitive Surgical", sector: "Healthcare", industry: "Medical Devices" },
+  "609207105": { ticker: "MRK", name: "Merck & Co", sector: "Healthcare", industry: "Pharmaceuticals" },
+  "713448108": { ticker: "PFE", name: "Pfizer Inc", sector: "Healthcare", industry: "Pharmaceuticals" },
+  "532457108": { ticker: "LLY", name: "Eli Lilly", sector: "Healthcare", industry: "Pharmaceuticals" },
+  "260543103": { ticker: "DHR", name: "Danaher Corp", sector: "Healthcare", industry: "Diagnostics" },
+  "92343E102": { ticker: "VRTX", name: "Vertex Pharma", sector: "Healthcare", industry: "Biotechnology" },
+  "882508104": { ticker: "TMO", name: "Thermo Fisher", sector: "Healthcare", industry: "Life Sciences" },
+  "126408103": { ticker: "CI", name: "Cigna Group", sector: "Healthcare", industry: "Healthcare Plans" },
+
+  // --- CONSUMER CYCLICAL ---
+  "023135106": { ticker: "AMZN", name: "Amazon.com Inc", sector: "Consumer Cyclical", industry: "Internet Retail" },
+  "88160R101": { ticker: "TSLA", name: "Tesla Inc", sector: "Consumer Cyclical", industry: "Auto Manufacturers" },
+  "437076102": { ticker: "HD", name: "Home Depot", sector: "Consumer Cyclical", industry: "Home Improvement" },
+  "548661107": { ticker: "LOW", name: "Lowe's Companies", sector: "Consumer Cyclical", industry: "Home Improvement" },
+  "57636Q104": { ticker: "MCD", name: "McDonald's Corp", sector: "Consumer Cyclical", industry: "Restaurants" },
+  "756109104": { ticker: "RCL", name: "Royal Caribbean", sector: "Consumer Cyclical", industry: "Travel" },
+  "87612E106": { ticker: "TGT", name: "Target Corp", sector: "Consumer Cyclical", industry: "Discount Stores" },
+  "654106103": { ticker: "NKE", name: "Nike Inc", sector: "Consumer Cyclical", industry: "Apparel" },
+  "855244109": { ticker: "SBUX", name: "Starbucks Corp", sector: "Consumer Cyclical", industry: "Restaurants" },
+  "169656105": { ticker: "CMG", name: "Chipotle Mexican Grill", sector: "Consumer Cyclical", industry: "Restaurants" },
+  "25754A201": { ticker: "DPZ", name: "Domino's Pizza", sector: "Consumer Cyclical", industry: "Restaurants" },
+  "988498101": { ticker: "YUM", name: "Yum! Brands", sector: "Consumer Cyclical", industry: "Restaurants" },
+  "518439104": { ticker: "EL", name: "Estee Lauder", sector: "Consumer Cyclical", industry: "Personal Products" },
+
+  // --- CONSUMER DEFENSIVE ---
+  "742718109": { ticker: "PG", name: "Procter & Gamble", sector: "Consumer Defensive", industry: "Household Products" },
+  "931142103": { ticker: "WMT", name: "Walmart Inc", sector: "Consumer Defensive", industry: "Discount Stores" },
+  "22160K105": { ticker: "COST", name: "Costco Wholesale", sector: "Consumer Defensive", industry: "Discount Stores" },
+  "714046109": { ticker: "PEP", name: "PepsiCo Inc", sector: "Consumer Defensive", industry: "Beverages" },
+  "191216100": { ticker: "KO", name: "Coca-Cola Co", sector: "Consumer Defensive", industry: "Beverages" },
+  "194162103": { ticker: "CL", name: "Colgate-Palmolive", sector: "Consumer Defensive", industry: "Household Products" },
+  "494368103": { ticker: "KMB", name: "Kimberly-Clark", sector: "Consumer Defensive", industry: "Household Products" },
+  "370334104": { ticker: "GIS", name: "General Mills", sector: "Consumer Defensive", industry: "Packaged Foods" },
+  "134429109": { ticker: "CPB", name: "Campbell Soup", sector: "Consumer Defensive", industry: "Packaged Foods" },
+  "611740101": { ticker: "MNST", name: "Monster Beverage", sector: "Consumer Defensive", industry: "Beverages" },
+  "21036P108": { ticker: "STZ", name: "Constellation Brands", sector: "Consumer Defensive", industry: "Beverages" },
+
+  // --- COMMUNICATION SERVICES ---
+  "20030N101": { ticker: "CMCSA", name: "Comcast Corp", sector: "Communication Services", industry: "Telecom" },
+  "254687106": { ticker: "DIS", name: "Walt Disney Co", sector: "Communication Services", industry: "Entertainment" },
+  "00206R102": { ticker: "T", name: "AT&T Inc", sector: "Communication Services", industry: "Telecom" },
+  "92343V104": { ticker: "VZ", name: "Verizon Comms", sector: "Communication Services", industry: "Telecom" },
+  "64110L106": { ticker: "NFLX", name: "Netflix Inc", sector: "Communication Services", industry: "Entertainment" },
+  "872590104": { ticker: "TMUS", name: "T-Mobile US", sector: "Communication Services", industry: "Telecom" },
+  "538034109": { ticker: "LYV", name: "Live Nation Entertainment", sector: "Communication Services", industry: "Entertainment" },
+  "85210D101": { ticker: "SPOT", name: "Spotify Technology", sector: "Communication Services", industry: "Entertainment" },
+  "771049103": { ticker: "RBLX", name: "Roblox Corp", sector: "Communication Services", industry: "Entertainment" },
+  "934423104": { ticker: "WBD", name: "Warner Bros Discovery", sector: "Communication Services", industry: "Entertainment" },
+  "92556H206": { ticker: "PARA", name: "Paramount Global", sector: "Communication Services", industry: "Entertainment" },
+  "16119P108": { ticker: "CHTR", name: "Charter Communications", sector: "Communication Services", industry: "Telecom" },
+  "35137L105": { ticker: "FOX", name: "Fox Corp", sector: "Communication Services", industry: "Entertainment" },
+
+  // --- ENERGY (Sankey + Schneider relevant) ---
+  "812348108": { ticker: "SLB", name: "Schlumberger", sector: "Energy", industry: "Oil Services" },
+  "30231G102": { ticker: "XOM", name: "Exxon Mobil", sector: "Energy", industry: "Oil & Gas" },
+  "166764100": { ticker: "CVX", name: "Chevron Corp", sector: "Energy", industry: "Oil & Gas" },
+  "20825C104": { ticker: "COP", name: "ConocoPhillips", sector: "Energy", industry: "Oil & Gas" },
+  "406216101": { ticker: "HAL", name: "Halliburton Co", sector: "Energy", industry: "Oil Services" },
+  "26875P101": { ticker: "EOG", name: "EOG Resources", sector: "Energy", industry: "Oil & Gas" },
+  "25278X109": { ticker: "FANG", name: "Diamondback Energy", sector: "Energy", industry: "Oil & Gas" },
+  "25179M103": { ticker: "DVN", name: "Devon Energy", sector: "Energy", industry: "Oil & Gas" },
+  "674599105": { ticker: "OXY", name: "Occidental Petroleum", sector: "Energy", industry: "Oil & Gas" },
+  "56585A102": { ticker: "MPC", name: "Marathon Petroleum", sector: "Energy", industry: "Oil & Gas Refining" },
+  "91913Y100": { ticker: "VLO", name: "Valero Energy", sector: "Energy", industry: "Oil & Gas Refining" },
+  "718507105": { ticker: "PSX", name: "Phillips 66", sector: "Energy", industry: "Oil & Gas Refining" },
+  "969457100": { ticker: "WMB", name: "Williams Companies", sector: "Energy", industry: "Oil & Gas Midstream" },
+  "49456B101": { ticker: "KMI", name: "Kinder Morgan", sector: "Energy", industry: "Oil & Gas Midstream" },
+
+  // --- INDUSTRIALS ---
+  "02376R102": { ticker: "AAL", name: "American Airlines", sector: "Industrials", industry: "Airlines" },
+  "245908205": { ticker: "DE", name: "Deere & Co", sector: "Industrials", industry: "Farm Machinery" },
+  "149123101": { ticker: "CAT", name: "Caterpillar Inc", sector: "Industrials", industry: "Heavy Machinery" },
+  "369604103": { ticker: "GE", name: "GE Aerospace", sector: "Industrials", industry: "Aerospace" },
+  "539830109": { ticker: "LMT", name: "Lockheed Martin", sector: "Industrials", industry: "Aerospace & Defense" },
+  "75513E101": { ticker: "RTX", name: "RTX Corp", sector: "Industrials", industry: "Aerospace & Defense" },
+  "097023105": { ticker: "BA", name: "Boeing Co", sector: "Industrials", industry: "Aerospace & Defense" },
+  // IronAdvisor-relevant
+  "231021106": { ticker: "CMI", name: "Cummins Inc", sector: "Industrials", industry: "Industrial Machinery" },
+  "693718108": { ticker: "PCAR", name: "PACCAR Inc", sector: "Industrials", industry: "Industrial Machinery" },
+  "278058102": { ticker: "ETN", name: "Eaton Corp", sector: "Industrials", industry: "Industrial Machinery" },
+  "773903109": { ticker: "ROK", name: "Rockwell Automation", sector: "Industrials", industry: "Industrial Machinery" },
+  "701094104": { ticker: "PH", name: "Parker-Hannifin", sector: "Industrials", industry: "Industrial Machinery" },
+  "260003108": { ticker: "DOV", name: "Dover Corp", sector: "Industrials", industry: "Industrial Machinery" },
+  "452308109": { ticker: "ITW", name: "Illinois Tool Works", sector: "Industrials", industry: "Industrial Machinery" },
+  "291011104": { ticker: "EMR", name: "Emerson Electric", sector: "Industrials", industry: "Industrial Machinery" },
+  "45687V106": { ticker: "IR", name: "Ingersoll Rand", sector: "Industrials", industry: "Industrial Machinery" },
+  "688239201": { ticker: "OSK", name: "Oshkosh Corp", sector: "Industrials", industry: "Industrial Machinery" },
+  "001084102": { ticker: "AGCO", name: "AGCO Corp", sector: "Industrials", industry: "Farm Machinery" },
+
+  // --- BASIC MATERIALS / CHEMICALS (Fermium-relevant) ---
+  "824348106": { ticker: "SHW", name: "Sherwin-Williams", sector: "Basic Materials", industry: "Specialty Chemicals" },
+  "260557103": { ticker: "DOW", name: "Dow Inc", sector: "Basic Materials", industry: "Chemicals" },
+  "26614N102": { ticker: "DD", name: "DuPont de Nemours", sector: "Basic Materials", industry: "Specialty Chemicals" },
+  "501585106": { ticker: "LYB", name: "LyondellBasell", sector: "Basic Materials", industry: "Chemicals" },
+  "009158106": { ticker: "APD", name: "Air Products & Chemicals", sector: "Basic Materials", industry: "Specialty Chemicals" },
+  "278865100": { ticker: "ECL", name: "Ecolab Inc", sector: "Basic Materials", industry: "Specialty Chemicals" },
+  "693506107": { ticker: "PPG", name: "PPG Industries", sector: "Basic Materials", industry: "Specialty Chemicals" },
+  "150870103": { ticker: "CE", name: "Celanese Corp", sector: "Basic Materials", industry: "Chemicals" },
+  "277432100": { ticker: "EMN", name: "Eastman Chemical", sector: "Basic Materials", industry: "Specialty Chemicals" },
+  "012653101": { ticker: "ALB", name: "Albemarle Corp", sector: "Basic Materials", industry: "Specialty Chemicals" },
+  "670346105": { ticker: "NUE", name: "Nucor Corp", sector: "Basic Materials", industry: "Steel" },
+  "858119100": { ticker: "STLD", name: "Steel Dynamics", sector: "Basic Materials", industry: "Steel" },
+  "185899101": { ticker: "CLF", name: "Cleveland-Cliffs", sector: "Basic Materials", industry: "Steel" },
+  "912909108": { ticker: "X", name: "United States Steel", sector: "Basic Materials", industry: "Steel" },
+
+  // --- SOLAR / URANIUM (GLJ-relevant) ---
+  "336433107": { ticker: "FSLR", name: "First Solar", sector: "Technology", industry: "Solar" },
+  "29355A107": { ticker: "ENPH", name: "Enphase Energy", sector: "Technology", industry: "Solar" },
+  "13321L108": { ticker: "CCJ", name: "Cameco Corp", sector: "Energy", industry: "Uranium" },
+  "76954A103": { ticker: "RIVN", name: "Rivian Automotive", sector: "Consumer Cyclical", industry: "Electric Vehicles" },
+
+  // --- AGRICULTURE / PROTEIN (Heather Jones-relevant) ---
+  "902494103": { ticker: "TSN", name: "Tyson Foods", sector: "Consumer Defensive", industry: "Protein & Agriculture" },
+  "039483102": { ticker: "ADM", name: "Archer-Daniels-Midland", sector: "Consumer Defensive", industry: "Protein & Agriculture" },
+  "120568105": { ticker: "BG", name: "Bunge Global", sector: "Consumer Defensive", industry: "Protein & Agriculture" },
+  "61945C103": { ticker: "MOS", name: "Mosaic Company", sector: "Basic Materials", industry: "Agricultural Chemicals" },
+  "67077M108": { ticker: "NTR", name: "Nutrien Ltd", sector: "Basic Materials", industry: "Agricultural Chemicals" },
+  "125269100": { ticker: "CF", name: "CF Industries", sector: "Basic Materials", industry: "Agricultural Chemicals" },
+  "22052L104": { ticker: "CTVA", name: "Corteva Inc", sector: "Basic Materials", industry: "Agricultural Chemicals" },
+
+  // --- UTILITIES (Schneider-relevant) ---
+  "65339F101": { ticker: "NEE", name: "NextEra Energy", sector: "Utilities", industry: "Utilities - Renewable" },
+  "26441C204": { ticker: "DUK", name: "Duke Energy", sector: "Utilities", industry: "Utilities - Regulated" },
+  "842587107": { ticker: "SO", name: "Southern Company", sector: "Utilities", industry: "Utilities - Regulated" },
+  "25746U109": { ticker: "D", name: "Dominion Energy", sector: "Utilities", industry: "Utilities - Regulated" },
+  "025537101": { ticker: "AEP", name: "American Electric Power", sector: "Utilities", industry: "Utilities - Regulated" },
+  "30161N101": { ticker: "EXC", name: "Exelon Corp", sector: "Utilities", industry: "Utilities - Regulated" },
+  "816851109": { ticker: "SRE", name: "Sempra", sector: "Utilities", industry: "Utilities - Regulated" },
+
+  // --- REAL ESTATE ---
+  "92553P201": { ticker: "VICI", name: "VICI Properties", sector: "Real Estate", industry: "REIT" },
+
+  // --- ETFs ---
+  "78462F103": { ticker: "SPY", name: "SPDR S&P 500 ETF", sector: "ETF", industry: "Index Fund" },
+  "464287622": { ticker: "IVV", name: "iShares Core S&P 500", sector: "ETF", industry: "Index Fund" },
+  "922908363": { ticker: "VOO", name: "Vanguard S&P 500", sector: "ETF", industry: "Index Fund" },
+  "46090E103": { ticker: "QQQ", name: "Invesco QQQ Trust", sector: "ETF", industry: "Nasdaq Index" },
+};
+
+// ============================================================
+// AFFILIATE BRANDS — Coverage mapping for all 11 Analyst Hub affiliates
+// Each brand has: sectors, industries, tickers, keywords for matching
+// ============================================================
+const AFFILIATE_BRANDS = [
+  {
+    name: "Cannonball Research",
+    shortName: "Cannonball",
+    focus: "Ad Tech",
+    color: "#4fc3f7",
+    universal: false,
+    sectors: [],
+    industries: ["Ad Tech", "Internet Content"],
+    tickers: ["TTD", "GOOGL", "GOOG", "META", "PUBM", "MGNI", "CRTO", "DV", "APPS", "IAS"],
+    keywords: ["advertising", "ad tech", "programmatic", "digital media", "trade desk", "doubleVerify", "magnite", "pubmatic", "criteo"],
+  },
+  {
+    name: "Fermium Research",
+    shortName: "Fermium",
+    focus: "Chemicals",
+    color: "#dce775",
+    universal: false,
+    sectors: ["Basic Materials"],
+    industries: ["Chemicals", "Specialty Chemicals"],
+    tickers: ["DOW", "DD", "LYB", "APD", "SHW", "ECL", "PPG", "CE", "EMN", "ALB", "FMC", "HUN", "OLN", "AXTA", "RPM"],
+    keywords: ["chemical", "polymer", "specialty material", "coating", "adhesive", "resin"],
+  },
+  {
+    name: "FFTT Research",
+    shortName: "FFTT",
+    focus: "Macro",
+    color: "#fff176",
+    universal: true,
+    sectors: [],
+    industries: [],
+    tickers: [],
+    keywords: ["macro"],
+  },
+  {
+    name: "GLJ Research",
+    shortName: "GLJ",
+    focus: "Solar / EVs / Steel / Uranium",
+    color: "#4db6ac",
+    universal: false,
+    sectors: [],
+    industries: ["Solar", "Electric Vehicles", "Steel", "Uranium"],
+    tickers: ["FSLR", "ENPH", "SEDG", "CLF", "X", "NUE", "STLD", "CCJ", "UEC", "LEU", "TSLA", "RIVN", "LCID", "NIO", "RUN", "NOVA", "MAXN", "ARRY"],
+    keywords: ["solar", "steel", "uranium", "electric vehicle", "EV battery", "photovoltaic"],
+  },
+  {
+    name: "Heather Jones Research",
+    shortName: "H. Jones",
+    focus: "Protein & Agriculture",
+    color: "#a1887f",
+    universal: false,
+    sectors: [],
+    industries: ["Protein & Agriculture", "Agricultural Chemicals", "Farm Machinery", "Packaged Foods"],
+    tickers: ["TSN", "ADM", "BG", "MOS", "NTR", "CF", "CTVA", "AGCO", "CALM", "PPC", "HRL", "SJM", "DE", "INGR", "DAR", "VITL"],
+    keywords: ["agriculture", "protein", "farming", "fertilizer", "grain", "livestock", "poultry", "crop", "seed", "animal feed"],
+  },
+  {
+    name: "IronAdvisor Insights",
+    shortName: "IronAdvisor",
+    focus: "Industrial Machinery",
+    color: "#90a4ae",
+    universal: false,
+    sectors: [],
+    industries: ["Industrial Machinery", "Heavy Machinery", "Farm Machinery"],
+    tickers: ["CAT", "DE", "CMI", "PCAR", "ETN", "ROK", "PH", "DOV", "ITW", "EMR", "IR", "OSK", "TEX", "MTW", "CNHI", "AGCO"],
+    keywords: ["machinery", "industrial equipment", "heavy equipment", "construction equipment", "engine", "hydraulic", "automation"],
+  },
+  {
+    name: "LightShed Partners",
+    shortName: "LightShed",
+    focus: "Internet / Media / Telecom",
+    color: "#ba68c8",
+    universal: false,
+    sectors: ["Communication Services"],
+    industries: ["Telecom", "Entertainment", "Internet Content"],
+    tickers: ["NFLX", "DIS", "CMCSA", "T", "VZ", "TMUS", "LYV", "SPOT", "RBLX", "WBD", "PARA", "CHTR", "FOX", "LBRDA", "SIRI", "IMAX"],
+    keywords: ["media", "telecom", "streaming", "entertainment", "broadcasting", "live event", "cable", "wireless", "5G", "content"],
+  },
+  {
+    name: "Optimal Advisory",
+    shortName: "Optimal",
+    focus: "Consumer",
+    color: "#ffb74d",
+    universal: false,
+    sectors: ["Consumer Cyclical", "Consumer Defensive"],
+    industries: ["Internet Retail", "Restaurants", "Home Improvement", "Discount Stores", "Beverages", "Household Products", "Apparel", "Personal Products", "Packaged Foods", "Travel"],
+    tickers: ["WMT", "TGT", "COST", "NKE", "SBUX", "MCD", "DPZ", "CMG", "PG", "KO", "PEP", "EL", "CL", "KMB", "GIS", "MNST", "STZ", "YUM", "HD", "LOW", "AMZN"],
+    keywords: ["consumer", "retail", "restaurant", "beverage", "food", "apparel", "household", "grocery"],
+  },
+  {
+    name: "Rubinson Research",
+    shortName: "Rubinson",
+    focus: "Consumer / Brand Strategy",
+    color: "#ff8a65",
+    universal: false,
+    sectors: ["Consumer Cyclical", "Consumer Defensive"],
+    industries: ["Internet Retail", "Restaurants", "Beverages", "Household Products", "Apparel", "Personal Products", "Packaged Foods"],
+    tickers: ["PG", "KO", "PEP", "NKE", "EL", "CL", "KMB", "MNST", "STZ", "MCD", "SBUX", "CMG", "META", "GOOGL", "TTD"],
+    keywords: ["consumer brand", "CPG", "marketing", "brand strategy", "advertising spend", "consumer insight"],
+  },
+  {
+    name: "Sankey Research",
+    shortName: "Sankey",
+    focus: "Energy",
+    color: "#e57373",
+    universal: false,
+    sectors: ["Energy"],
+    industries: ["Oil & Gas", "Oil Services", "Oil & Gas Refining", "Oil & Gas Midstream"],
+    tickers: ["XOM", "CVX", "COP", "SLB", "HAL", "EOG", "FANG", "DVN", "OXY", "MPC", "VLO", "PSX", "WMB", "KMI", "BKR", "HES"],
+    keywords: ["oil", "gas", "petroleum", "energy", "refining", "pipeline", "E&P", "upstream", "downstream", "midstream", "LNG"],
+  },
+  {
+    name: "The Schneider Capital Group",
+    shortName: "Schneider",
+    focus: "Energy & Utilities",
+    color: "#ef5350",
+    universal: false,
+    sectors: ["Energy", "Utilities"],
+    industries: ["Oil & Gas", "Oil Services", "Oil & Gas Refining", "Oil & Gas Midstream", "Utilities - Renewable", "Utilities - Regulated", "Uranium"],
+    tickers: ["XOM", "CVX", "COP", "SLB", "EOG", "FANG", "NEE", "DUK", "SO", "D", "AEP", "EXC", "SRE", "DVN", "OXY", "MPC", "VLO", "CCJ"],
+    keywords: ["energy", "utilities", "power", "electricity", "natural gas", "renewable", "nuclear"],
+  },
+];
+
+// ============================================================
+// SAMPLE FIRMS — 85 institutional investors
+// ============================================================
+const SAMPLE_FIRMS = [
+  // --- MAJOR HEDGE FUNDS ---
+  { name: "BRIDGEWATER ASSOCIATES, LP", cik: "0001350694", type: "Hedge Fund" },
+  { name: "CITADEL ADVISORS LLC", cik: "0001423053", type: "Hedge Fund" },
+  { name: "MILLENNIUM MANAGEMENT LLC", cik: "0001273087", type: "Hedge Fund" },
+  { name: "TWO SIGMA INVESTMENTS, LP", cik: "0001179392", type: "Hedge Fund" },
+  { name: "D. E. SHAW & CO., L.P.", cik: "0001009207", type: "Hedge Fund" },
+  { name: "RENAISSANCE TECHNOLOGIES LLC", cik: "0001037389", type: "Hedge Fund" },
+  { name: "AQR CAPITAL MANAGEMENT LLC", cik: "0001167557", type: "Hedge Fund" },
+  { name: "POINT72 ASSET MANAGEMENT, L.P.", cik: "0001603466", type: "Hedge Fund" },
+  { name: "ELLIOTT INVESTMENT MANAGEMENT L.P.", cik: "0001048445", type: "Hedge Fund" },
+  { name: "BAUPOST GROUP LLC", cik: "0001061768", type: "Hedge Fund" },
+  { name: "VIKING GLOBAL INVESTORS LP", cik: "0001103804", type: "Hedge Fund" },
+  { name: "LONE PINE CAPITAL LLC", cik: "0001061165", type: "Hedge Fund" },
+  { name: "COATUE MANAGEMENT LLC", cik: "0001535392", type: "Hedge Fund" },
+  { name: "TIGER GLOBAL MANAGEMENT LLC", cik: "0001167483", type: "Hedge Fund" },
+  { name: "PERSHING SQUARE CAPITAL MANAGEMENT, L.P.", cik: "0001336528", type: "Hedge Fund" },
+  { name: "THIRD POINT LLC", cik: "0001040273", type: "Hedge Fund" },
+  { name: "SOROS FUND MANAGEMENT LLC", cik: "0001029160", type: "Hedge Fund" },
+  { name: "APPALOOSA MANAGEMENT LP", cik: "0001656456", type: "Hedge Fund" },
+  { name: "GREENLIGHT CAPITAL INC", cik: "0001079114", type: "Hedge Fund" },
+  { name: "VALUEACT CAPITAL MANAGEMENT, L.P.", cik: "0001345471", type: "Hedge Fund" },
+  { name: "JANA PARTNERS LLC", cik: "0001325863", type: "Hedge Fund" },
+  { name: "STARBOARD VALUE LP", cik: "0001517137", type: "Hedge Fund" },
+  { name: "MAVERICK CAPITAL, LTD.", cik: "0001010463", type: "Hedge Fund" },
+  { name: "FARALLON CAPITAL MANAGEMENT, L.L.C.", cik: "0001022820", type: "Hedge Fund" },
+  { name: "CANYON CAPITAL ADVISORS LLC", cik: "0001094696", type: "Hedge Fund" },
+  { name: "BALYASNY ASSET MANAGEMENT LLC", cik: "0001396814", type: "Hedge Fund" },
+  { name: "MOORE CAPITAL MANAGEMENT, LP", cik: "0001044316", type: "Hedge Fund" },
+  { name: "PAULSON & CO. INC.", cik: "0001035674", type: "Hedge Fund" },
+  { name: "TIGER MANAGEMENT LLC", cik: "0001013282", type: "Hedge Fund" },
+  { name: "BRIGADE CAPITAL MANAGEMENT, LP", cik: "0001547341", type: "Hedge Fund" },
+  { name: "MARSHALL WACE LLP", cik: "0001530266", type: "Hedge Fund" },
+  { name: "SCULPTOR CAPITAL MANAGEMENT INC", cik: "0001403256", type: "Hedge Fund" },
+  { name: "CAXTON ASSOCIATES LP", cik: "0001104012", type: "Hedge Fund" },
+  { name: "OMEGA ADVISORS INC.", cik: "0001061219", type: "Hedge Fund" },
+  { name: "TRIAN FUND MANAGEMENT, L.P.", cik: "0001547341", type: "Activist" },
+  { name: "ICAHN CARL C", cik: "0000921669", type: "Activist" },
+
+  // --- MAJOR ASSET MANAGERS ---
+  { name: "BLACKROCK INC.", cik: "0001364742", type: "Asset Manager" },
+  { name: "VANGUARD GROUP INC", cik: "0000102909", type: "Asset Manager" },
+  { name: "STATE STREET CORP", cik: "0000093751", type: "Asset Manager" },
+  { name: "FIDELITY MANAGEMENT & RESEARCH CO LLC", cik: "0000315066", type: "Asset Manager" },
+  { name: "CAPITAL WORLD INVESTORS", cik: "0000225648", type: "Asset Manager" },
+  { name: "GEODE CAPITAL MANAGEMENT, LLC", cik: "0001214717", type: "Asset Manager" },
+  { name: "INVESCO LTD.", cik: "0000914208", type: "Asset Manager" },
+  { name: "T. ROWE PRICE ASSOCIATES, INC.", cik: "0001035267", type: "Asset Manager" },
+  { name: "WELLINGTON MANAGEMENT GROUP LLP", cik: "0001624313", type: "Asset Manager" },
+  { name: "DIMENSIONAL FUND ADVISORS LP", cik: "0000354204", type: "Asset Manager" },
+  { name: "NORTHERN TRUST CORP", cik: "0000073124", type: "Asset Manager" },
+  { name: "FRANKLIN RESOURCES INC", cik: "0000038777", type: "Asset Manager" },
+  { name: "MFS INVESTMENT MANAGEMENT", cik: "0001292829", type: "Asset Manager" },
+  { name: "NUVEEN ASSET MANAGEMENT LLC", cik: "0001471690", type: "Asset Manager" },
+  { name: "ALLIANCEBERNSTEIN L.P.", cik: "0000825313", type: "Asset Manager" },
+  { name: "JANUS HENDERSON GROUP PLC", cik: "0001064642", type: "Asset Manager" },
+  { name: "DODGE & COX", cik: "0000029102", type: "Asset Manager" },
+  { name: "HARRIS ASSOCIATES L.P.", cik: "0000797530", type: "Asset Manager" },
+  { name: "LOOMIS SAYLES & COMPANY, L.P.", cik: "0000060481", type: "Asset Manager" },
+  { name: "PUTNAM INVESTMENTS LLC", cik: "0000789399", type: "Asset Manager" },
+  { name: "ARK INVESTMENT MANAGEMENT LLC", cik: "0001697748", type: "Asset Manager" },
+  { name: "AMERICAN CENTURY COMPANIES INC", cik: "0001002545", type: "Asset Manager" },
+  { name: "LAZARD ASSET MANAGEMENT LLC", cik: "0001062005", type: "Asset Manager" },
+  { name: "EATON VANCE MANAGEMENT", cik: "0000350797", type: "Asset Manager" },
+
+  // --- BANKS / BROKER-DEALERS ---
+  { name: "JPMORGAN CHASE & CO", cik: "0000019617", type: "Bank" },
+  { name: "GOLDMAN SACHS GROUP INC", cik: "0000886982", type: "Bank" },
+  { name: "MORGAN STANLEY", cik: "0000895421", type: "Bank" },
+  { name: "CHARLES SCHWAB INVESTMENT MANAGEMENT INC", cik: "0000803588", type: "Bank" },
+  { name: "UBS GROUP AG", cik: "0001610520", type: "Bank" },
+  { name: "BARCLAYS PLC", cik: "0000312069", type: "Bank" },
+
+  // --- INSURANCE / PENSION ---
+  { name: "PRUDENTIAL FINANCIAL INC", cik: "0001137774", type: "Insurance" },
+  { name: "PRINCIPAL FINANCIAL GROUP INC", cik: "0001126328", type: "Insurance" },
+
+  // --- GROWTH / TECH-FOCUSED ---
+  { name: "DRAGONEER INVESTMENT GROUP LLC", cik: "0001571906", type: "Hedge Fund" },
+  { name: "WHALE ROCK CAPITAL MANAGEMENT LLC", cik: "0001604369", type: "Hedge Fund" },
+  { name: "ALTIMETER CAPITAL MANAGEMENT, LP", cik: "0001617631", type: "Hedge Fund" },
+  { name: "D1 CAPITAL PARTNERS L.P.", cik: "0001787519", type: "Hedge Fund" },
+  { name: "LIGHT STREET CAPITAL MANAGEMENT, LLC", cik: "0001623822", type: "Hedge Fund" },
+  { name: "ALKEON CAPITAL MANAGEMENT LLC", cik: "0001541996", type: "Hedge Fund" },
+  { name: "SOROBAN CAPITAL PARTNERS LP", cik: "0001550950", type: "Hedge Fund" },
+
+  // --- ENERGY-FOCUSED (Sankey/Schneider-relevant) ---
+  { name: "KING STREET CAPITAL MANAGEMENT, L.P.", cik: "0001106500", type: "Hedge Fund" },
+  { name: "ANCHORAGE CAPITAL GROUP, L.L.C.", cik: "0001279833", type: "Hedge Fund" },
+
+  // --- MULTI-STRATEGY ---
+  { name: "APOLLO MANAGEMENT HOLDINGS, L.P.", cik: "0001411494", type: "Hedge Fund" },
+  { name: "KKR & CO INC", cik: "0001404912", type: "Hedge Fund" },
+
+  // --- SOUTHEASTERN / VALUE ---
+  { name: "SOUTHEASTERN ASSET MANAGEMENT INC", cik: "0000807985", type: "Asset Manager" },
+  { name: "BRANDES INVESTMENT PARTNERS, L.P.", cik: "0000783412", type: "Asset Manager" },
+];
+
+// ============================================================
+// SAMPLE HOLDINGS GENERATOR (no server needed — works offline)
+// Uses CUSIP_SECTOR_MAP to create realistic portfolios per firm
+// ============================================================
+const STOCK_PRICES = {
+  "037833100":230,"594918104":420,"67066G104":140,"02079K305":175,"02079K107":176,
+  "30303M102":580,"110122108":185,"458140100":22,"46120E602":620,"17275R102":57,
+  "68389X105":175,"79466L302":300,"00724F101":480,"872540109":195,"88339J105":110,
+  "74467Q103":18,"55955D100":15,"226713104":38,"25862V105":18,
+  "46625H100":240,"92826C839":295,"571903202":520,"172967424":72,"060505104":43,
+  "949746101":70,"38141G104":580,"617446448":115,"808513105":78,"053015103":280,
+  "74460D109":80,"084670702":460,
+  "478160104":155,"91324P102":510,"375558103":95,"11135F101":42,"00287Y109":170,
+  "023608102":290,"464287614":520,"609207105":100,"713448108":26,"532457108":780,
+  "260543103":240,"92343E102":440,"882508104":560,
+  "023135106":210,"88160R101":350,"931142103":90,"742718109":170,"191216100":62,
+  "654106103":75,"58933Y105":300,"812085204":100,
+  "20825C104":105,"30231G102":108,"166764100":155,"674599105":52,
+  "64110L106":900,"252131107":110,"92343V104":42,"78410G104":490,
+  "099724106":180,"912456100":130,"149123101":380,"369604103":185,"443185106":200,
+  "345370860":175
+};
+
+function seededRandom(seed) {
+  let s = seed;
+  return function() {
+    s = (s * 1664525 + 1013904223) & 0xFFFFFFFF;
+    return (s >>> 0) / 0xFFFFFFFF;
+  };
+}
+
+function generateSampleHoldings(firm) {
+  // Create a seed from CIK
+  const cikNum = parseInt(firm.cik.replace(/^0+/, "")) || 12345;
+  const rand = seededRandom(cikNum);
+
+  const allCusips = Object.keys(CUSIP_SECTOR_MAP);
+  const sectors = {};
+  allCusips.forEach(c => {
+    const s = CUSIP_SECTOR_MAP[c].sector;
+    if (!sectors[s]) sectors[s] = [];
+    sectors[s].push(c);
+  });
+
+  // Sector weights by firm name/type for realistic portfolios
+  let weights = { "Technology": 0.30, "Financial Services": 0.15, "Healthcare": 0.15,
+    "Consumer Cyclical": 0.10, "Consumer Defensive": 0.05, "Energy": 0.08,
+    "Communication Services": 0.07, "Industrials": 0.05, "Utilities": 0.03, "Real Estate": 0.02 };
+  let numHoldings = 45;
+  let baseVal = 3000000; // in thousands
+
+  const nm = firm.name.toUpperCase();
+  // Tech-heavy funds
+  if (nm.includes("TIGER") || nm.includes("COATUE") || nm.includes("LONE PINE")) {
+    weights = { "Technology": 0.55, "Communication Services": 0.15, "Consumer Cyclical": 0.12,
+      "Healthcare": 0.08, "Financial Services": 0.05, "Industrials": 0.03, "Energy": 0.02 };
+    numHoldings = 28; baseVal = 5000000;
+  }
+  // Concentrated activists
+  else if (nm.includes("PERSHING") || nm.includes("VALUEACT") || nm.includes("ELLIOTT") || nm.includes("THIRD POINT") || nm.includes("STARBOARD") || nm.includes("JANA")) {
+    weights = { "Technology": 0.25, "Industrials": 0.20, "Healthcare": 0.15,
+      "Consumer Cyclical": 0.15, "Financial Services": 0.10, "Energy": 0.10, "Communication Services": 0.05 };
+    numHoldings = 18; baseVal = 4000000;
+  }
+  // Quant / multi-strat
+  else if (nm.includes("CITADEL") || nm.includes("DE SHAW") || nm.includes("TWO SIGMA") || nm.includes("RENAISSANCE") || nm.includes("MILLENNIUM") || nm.includes("AQR") || nm.includes("BALYASNY")) {
+    weights = { "Technology": 0.35, "Financial Services": 0.18, "Healthcare": 0.15,
+      "Consumer Cyclical": 0.10, "Energy": 0.07, "Industrials": 0.07, "Communication Services": 0.05, "Consumer Defensive": 0.03 };
+    numHoldings = 55; baseVal = 4500000;
+  }
+  // Macro / diversified
+  else if (nm.includes("BRIDGEWATER") || nm.includes("SOROS") || nm.includes("MOORE")) {
+    weights = { "Technology": 0.20, "Financial Services": 0.20, "Healthcare": 0.12,
+      "Consumer Defensive": 0.12, "Energy": 0.10, "Consumer Cyclical": 0.08, "Industrials": 0.08, "Communication Services": 0.05, "Utilities": 0.03, "Real Estate": 0.02 };
+    numHoldings = 50; baseVal = 3500000;
+  }
+  // Energy-focused (Sankey/Schneider relevant)
+  else if (nm.includes("ENERGY") || nm.includes("CANYON")) {
+    weights = { "Energy": 0.40, "Industrials": 0.15, "Financial Services": 0.15,
+      "Technology": 0.10, "Healthcare": 0.10, "Consumer Cyclical": 0.05, "Utilities": 0.05 };
+    numHoldings = 25; baseVal = 2000000;
+  }
+  // Giant asset managers
+  else if (nm.includes("BLACKROCK") || nm.includes("VANGUARD") || nm.includes("STATE STREET") || nm.includes("FIDELITY")) {
+    weights = { "Technology": 0.30, "Financial Services": 0.15, "Healthcare": 0.14,
+      "Consumer Cyclical": 0.10, "Industrials": 0.08, "Communication Services": 0.07, "Energy": 0.06, "Consumer Defensive": 0.05, "Utilities": 0.03, "Real Estate": 0.02 };
+    numHoldings = 65; baseVal = 40000000;
+  }
+  // Other asset managers
+  else if (firm.type === "Asset Manager") {
+    numHoldings = 40; baseVal = 8000000;
+  }
+  // Value / distressed
+  else if (nm.includes("BAUPOST") || nm.includes("APPALOOSA") || nm.includes("GREENLIGHT") || nm.includes("PAULSON")) {
+    weights = { "Financial Services": 0.22, "Healthcare": 0.18, "Energy": 0.18,
+      "Technology": 0.15, "Industrials": 0.12, "Consumer Cyclical": 0.08, "Communication Services": 0.07 };
+    numHoldings = 22; baseVal = 2500000;
+  }
+
+  // Build pool of cusips weighted by sector
+  let pool = [];
+  for (const [sector, w] of Object.entries(weights)) {
+    const sectorCusips = sectors[sector] || [];
+    if (sectorCusips.length > 0) {
+      const count = Math.max(1, Math.round(numHoldings * w));
+      // Shuffle sector cusips using seeded random
+      const shuffled = [...sectorCusips].sort(() => rand() - 0.5);
+      pool.push(...shuffled.slice(0, count));
+    }
+  }
+  // Remove duplicates, trim to numHoldings
+  pool = [...new Set(pool)].slice(0, numHoldings);
+
+  // Assign values with exponential decay + noise
+  let val = baseVal;
+  const decay = 0.88;
+  const holdings = pool.map(cusip => {
+    const mapped = CUSIP_SECTOR_MAP[cusip];
+    const price = STOCK_PRICES[cusip] || 100;
+    const noise = 0.7 + rand() * 0.6; // 0.7-1.3
+    const thisVal = Math.round(val * noise);
+    val *= decay;
+    const shares = Math.round(thisVal * 1000 / price);
+    return {
+      nameOfIssuer: mapped.name, titleOfClass: "COM", cusip: cusip,
+      value: thisVal,
+      shrsOrPrnAmt: { sshPrnamt: shares, sshPrnamtType: "SH" },
+      investmentDiscretion: "SOLE",
+      votingAuthority: { sole: shares, shared: 0, none: 0 }
+    };
+  });
+
+  holdings.sort((a, b) => b.value - a.value);
+  return {
+    holdings,
+    filingInfo: {
+      filingDate: "2025-11-14", reportDate: "2025-09-30",
+      accession: "sample-data", entityName: firm.name,
+      source: "sample"
+    }
+  };
+}
+
+// ============================================================
+// UTILITY FUNCTIONS
+// ============================================================
+const formatValue = (val) => {
+  if (val >= 1e9) return `$${(val / 1e9).toFixed(2)}B`;
+  if (val >= 1e6) return `$${(val / 1e6).toFixed(1)}M`;
+  if (val >= 1e3) return `$${(val / 1e3).toFixed(0)}K`;
+  return `$${val}`;
+};
+
+const formatShares = (s) => {
+  if (s >= 1e6) return `${(s / 1e6).toFixed(2)}M`;
+  if (s >= 1e3) return `${(s / 1e3).toFixed(1)}K`;
+  return s?.toString() || "—";
+};
+
+const SECTOR_COLORS = {
+  "Technology": "#4fc3f7",
+  "Financial Services": "#81c784",
+  "Healthcare": "#f06292",
+  "Consumer Cyclical": "#ffb74d",
+  "Consumer Defensive": "#a1887f",
+  "Communication Services": "#ba68c8",
+  "Industrials": "#90a4ae",
+  "Energy": "#e57373",
+  "Basic Materials": "#dce775",
+  "Real Estate": "#4db6ac",
+  "Utilities": "#fff176",
+  "ETF": "#78909c",
+  "Unknown": "#546e7a",
+};
+
+// ============================================================
+// COVERAGE OVERLAP SCORING ENGINE
+// ============================================================
+function calculateBrandOverlap(holdings, brand) {
+  if (brand.universal) {
+    return {
+      brand: brand.name,
+      shortName: brand.shortName,
+      focus: brand.focus,
+      color: brand.color,
+      score: 100,
+      matchedValue: 0,
+      matchedCount: 0,
+      totalValue: 0,
+      relevance: "High",
+      reason: "Universal macro research — relevant to all institutional investors",
+      matchedHoldings: [],
+    };
+  }
+
+  let matchedValue = 0;
+  let matchedCount = 0;
+  const matchedHoldings = [];
+  const totalValue = holdings.reduce((s, h) => s + h.value, 0);
+
+  holdings.forEach(h => {
+    const mapped = CUSIP_SECTOR_MAP[h.cusip];
+    let matched = false;
+    let matchType = "";
+
+    if (mapped) {
+      if (brand.tickers.includes(mapped.ticker)) {
+        matched = true;
+        matchType = "ticker";
+      }
+      else if (brand.industries.length > 0 && brand.industries.includes(mapped.industry)) {
+        matched = true;
+        matchType = "industry";
+      }
+      else if (brand.sectors.length > 0 && brand.sectors.includes(mapped.sector)) {
+        matched = true;
+        matchType = "sector";
+      }
+    }
+
+    if (!matched && brand.keywords.length > 0) {
+      const issuerLower = h.nameOfIssuer.toLowerCase();
+      const industryLower = mapped?.industry?.toLowerCase() || "";
+      if (brand.keywords.some(kw => issuerLower.includes(kw.toLowerCase()) || industryLower.includes(kw.toLowerCase()))) {
+        matched = true;
+        matchType = "keyword";
+      }
+    }
+
+    if (matched) {
+      matchedValue += h.value;
+      matchedCount++;
+      matchedHoldings.push({
+        ...h,
+        ticker: mapped?.ticker,
+        sector: mapped?.sector,
+        industry: mapped?.industry,
+        matchType,
+      });
+    }
+  });
+
+  const valueScore = totalValue > 0 ? (matchedValue / totalValue) * 100 : 0;
+  const countScore = holdings.length > 0 ? (matchedCount / holdings.length) * 100 : 0;
+  const score = totalValue > 0 ? valueScore : countScore;
+
+  let relevance, reason;
+  if (score > 12) {
+    relevance = "High";
+    reason = `${score.toFixed(1)}% of portfolio in ${brand.focus} — strong alignment`;
+  } else if (score > 4) {
+    relevance = "Medium";
+    reason = `${score.toFixed(1)}% exposure to ${brand.focus} — meaningful position`;
+  } else if (matchedCount > 0) {
+    relevance = "Low";
+    reason = `${matchedCount} position${matchedCount > 1 ? "s" : ""} in ${brand.focus} — limited but present`;
+  } else {
+    relevance = "None";
+    reason = `No identified exposure to ${brand.focus}`;
+  }
+
+  return {
+    brand: brand.name,
+    shortName: brand.shortName,
+    focus: brand.focus,
+    color: brand.color,
+    score,
+    matchedValue: matchedValue * 1000,
+    matchedCount,
+    totalValue: totalValue * 1000,
+    relevance,
+    reason,
+    matchedHoldings: matchedHoldings.sort((a, b) => b.value - a.value).slice(0, 5),
+  };
+}
+
+function calculateAllOverlaps(holdings) {
+  return AFFILIATE_BRANDS.map(brand => calculateBrandOverlap(holdings, brand))
+    .sort((a, b) => {
+      const order = { High: 0, Medium: 1, Low: 2, None: 3 };
+      if (order[a.relevance] !== order[b.relevance]) return order[a.relevance] - order[b.relevance];
+      return b.score - a.score;
+    });
+}
+
+// ============================================================
+// SECTOR BREAKDOWN COMPONENT
+// ============================================================
+function SectorBreakdown({ holdings }) {
+  const sectorData = {};
+  let mappedValue = 0;
+  let unmappedValue = 0;
+  const totalValue = holdings.reduce((s, h) => s + h.value, 0);
+
+  holdings.forEach(h => {
+    const mapped = CUSIP_SECTOR_MAP[h.cusip];
+    if (mapped) {
+      const sec = mapped.sector;
+      if (!sectorData[sec]) sectorData[sec] = { value: 0, count: 0, holdings: [] };
+      sectorData[sec].value += h.value;
+      sectorData[sec].count += 1;
+      sectorData[sec].holdings.push({ ...h, ...mapped });
+      mappedValue += h.value;
+    } else {
+      unmappedValue += h.value;
+    }
+  });
+
+  const sorted = Object.entries(sectorData).sort((a, b) => b[1].value - a[1].value);
+  const coveragePercent = totalValue > 0 ? ((mappedValue / totalValue) * 100).toFixed(1) : 0;
+
+  return (
+    <div style={{ background: "#0d1f2d", border: "1px solid #1a3040", borderRadius: 8, padding: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5, color: "#5a7a8a", fontWeight: 600 }}>
+          Sector Allocation
+        </div>
+        <div style={{ fontSize: 10, color: "#3a5a6a" }}>
+          {coveragePercent}% of portfolio mapped
+        </div>
+      </div>
+
+      <div style={{ display: "flex", height: 20, borderRadius: 4, overflow: "hidden", marginBottom: 16, gap: 1 }}>
+        {sorted.map(([sector, data]) => {
+          const pct = (data.value / totalValue) * 100;
+          if (pct < 0.5) return null;
+          return (
+            <div key={sector} title={`${sector}: ${pct.toFixed(1)}%`} style={{
+              width: `${pct}%`, background: SECTOR_COLORS[sector] || SECTOR_COLORS.Unknown,
+              opacity: 0.8, transition: "opacity 0.15s", cursor: "pointer",
+            }}
+            onMouseEnter={e => e.target.style.opacity = 1}
+            onMouseLeave={e => e.target.style.opacity = 0.8}
+            />
+          );
+        })}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 6 }}>
+        {sorted.map(([sector, data]) => {
+          const pct = (data.value / totalValue) * 100;
+          return (
+            <div key={sector} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
+              <div style={{ width: 10, height: 10, borderRadius: 2, flexShrink: 0, background: SECTOR_COLORS[sector] || SECTOR_COLORS.Unknown }} />
+              <span style={{ fontSize: 12, color: "#8899aa", flex: 1 }}>{sector}</span>
+              <span style={{ fontSize: 12, color: "#d0e8dc", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>{pct.toFixed(1)}%</span>
+              <span style={{ fontSize: 11, color: "#4a6a7a", fontFamily: "'JetBrains Mono', monospace" }}>({data.count})</span>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1, color: "#3a5a6a", marginBottom: 8 }}>
+          Top 3 holdings per sector
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 8 }}>
+          {sorted.slice(0, 6).map(([sector, data]) => (
+            <div key={sector} style={{
+              background: "rgba(26,48,64,0.4)", borderRadius: 6, padding: 10,
+              borderLeft: `3px solid ${SECTOR_COLORS[sector] || SECTOR_COLORS.Unknown}`,
+            }}>
+              <div style={{ fontSize: 11, color: SECTOR_COLORS[sector], fontWeight: 600, marginBottom: 6 }}>{sector}</div>
+              {data.holdings.sort((a, b) => b.value - a.value).slice(0, 3).map((h, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#8899aa", padding: "2px 0" }}>
+                  <span>{h.ticker || h.nameOfIssuer?.slice(0, 20)}</span>
+                  <span style={{ color: "#7ec8a0", fontFamily: "'JetBrains Mono', monospace" }}>{formatValue(h.value * 1000)}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// COVERAGE OVERLAP COMPONENT
+// ============================================================
+function CoverageOverlap({ holdings }) {
+  const overlaps = calculateAllOverlaps(holdings);
+  const [expanded, setExpanded] = useState(null);
+
+  const relevanceStyles = {
+    High: { bg: "rgba(126,200,160,0.12)", border: "rgba(126,200,160,0.4)", badge: "#7ec8a0", badgeBg: "rgba(126,200,160,0.15)" },
+    Medium: { bg: "rgba(255,183,77,0.08)", border: "rgba(255,183,77,0.3)", badge: "#ffb74d", badgeBg: "rgba(255,183,77,0.15)" },
+    Low: { bg: "rgba(90,122,138,0.08)", border: "rgba(90,122,138,0.2)", badge: "#5a7a8a", badgeBg: "rgba(90,122,138,0.15)" },
+    None: { bg: "rgba(26,48,64,0.3)", border: "rgba(26,48,64,0.5)", badge: "#3a5a6a", badgeBg: "rgba(26,48,64,0.3)" },
+  };
+
+  return (
+    <div style={{ background: "#0d1f2d", border: "1px solid #1a3040", borderRadius: 8, padding: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5, color: "#5a7a8a", fontWeight: 600 }}>
+          Affiliate Coverage Overlap
+        </div>
+        <div style={{ fontSize: 10, color: "#3a5a6a" }}>
+          {overlaps.filter(o => o.relevance === "High" || o.relevance === "Medium").length} of {AFFILIATE_BRANDS.length} brands with meaningful overlap
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+        {overlaps.map(o => {
+          const s = relevanceStyles[o.relevance];
+          return (
+            <div key={o.brand} style={{
+              padding: "4px 10px", borderRadius: 4, fontSize: 11, fontWeight: 500,
+              background: s.badgeBg, color: s.badge, border: `1px solid ${s.border}`,
+              cursor: "pointer", transition: "all 0.15s",
+            }}
+            onClick={() => setExpanded(expanded === o.brand ? null : o.brand)}
+            >
+              {o.shortName}
+              <span style={{ marginLeft: 6, opacity: 0.7 }}>
+                {o.universal ? "✦" : o.relevance === "None" ? "—" : `${o.score.toFixed(1)}%`}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ display: "grid", gap: 8 }}>
+        {overlaps.map(o => {
+          const s = relevanceStyles[o.relevance];
+          const isExpanded = expanded === o.brand;
+          return (
+            <div key={o.brand} style={{
+              background: s.bg, border: `1px solid ${s.border}`, borderRadius: 6,
+              overflow: "hidden", cursor: "pointer", transition: "all 0.15s",
+            }}
+            onClick={() => setExpanded(isExpanded ? null : o.brand)}
+            >
+              <div style={{ padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ width: 4, height: 28, borderRadius: 2, background: o.color }} />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#d0e8dc" }}>{o.brand}</div>
+                    <div style={{ fontSize: 11, color: "#6a8a9a" }}>{o.focus}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  {!o.universal && o.matchedCount > 0 && (
+                    <span style={{ fontSize: 11, color: "#5a7a8a" }}>
+                      {o.matchedCount} position{o.matchedCount > 1 ? "s" : ""} · {formatValue(o.matchedValue)}
+                    </span>
+                  )}
+                  <span style={{
+                    padding: "3px 10px", borderRadius: 4, fontSize: 10, fontWeight: 600,
+                    textTransform: "uppercase", letterSpacing: 0.5,
+                    background: s.badgeBg, color: s.badge,
+                  }}>
+                    {o.relevance}
+                  </span>
+                  <span style={{ fontSize: 10, color: "#4a6a7a", transition: "transform 0.15s", transform: isExpanded ? "rotate(180deg)" : "none" }}>▼</span>
+                </div>
+              </div>
+
+              {isExpanded && (
+                <div style={{ padding: "0 16px 12px 30px", animation: "fadeIn 0.2s ease-out" }}>
+                  <div style={{ fontSize: 12, color: "#8899aa", marginBottom: 8, fontStyle: "italic" }}>{o.reason}</div>
+                  {o.matchedHoldings.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1, color: "#4a6a7a", marginBottom: 6 }}>Top matched holdings</div>
+                      {o.matchedHoldings.map((h, i) => (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "3px 0", color: "#8899aa" }}>
+                          <span>
+                            <span style={{ color: "#d0e8dc", fontWeight: 500 }}>{h.ticker || h.nameOfIssuer.slice(0, 20)}</span>
+                            <span style={{ marginLeft: 6, fontSize: 9, color: "#4a6a7a", textTransform: "uppercase" }}>{h.matchType}</span>
+                          </span>
+                          <span style={{ color: "#7ec8a0", fontFamily: "'JetBrains Mono', monospace" }}>{formatValue(h.value * 1000)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// GAP FINDER FRAMEWORK
+// ============================================================
+function GapFinder({ holdings, firmName, allFirms, onSelectFirm }) {
+  const [distributionLists, setDistributionLists] = useState({});
+  const [csvInput, setCsvInput] = useState("");
+  const [selectedBrand, setSelectedBrand] = useState(AFFILIATE_BRANDS[0]?.name || "");
+  const [importMode, setImportMode] = useState(false);
+  const [scanMode, setScanMode] = useState("single");
+
+  const parseCSV = (text) => {
+    const lines = text.split("\n").filter(l => l.trim());
+    if (lines.length < 2) return [];
+    const rawHeaders = lines[0].split(",").map(h => h.trim().replace(/^["']|["']$/g, ""));
+    const headers = rawHeaders.map(h => h.toLowerCase());
+
+    return lines.slice(1).map(line => {
+      const vals = [];
+      let current = "";
+      let inQuotes = false;
+      for (const char of line) {
+        if (char === '"') { inQuotes = !inQuotes; }
+        else if (char === "," && !inQuotes) { vals.push(current.trim()); current = ""; }
+        else { current += char; }
+      }
+      vals.push(current.trim());
+
+      const contact = {};
+      headers.forEach((h, i) => { contact[h] = vals[i]?.replace(/^["']|["']$/g, "") || ""; });
+      contact._company = contact.company || contact.firm || contact.organization || contact.institution || "";
+      contact._name = contact.name || contact["contact name"] || contact["full name"] || contact.contact || "";
+      contact._email = contact.email || contact["email address"] || contact.e_mail || "";
+      contact._title = contact.title || contact.role || contact.position || "";
+      return contact;
+    });
+  };
+
+  const importCSV = () => {
+    const contacts = parseCSV(csvInput);
+    if (contacts.length === 0) return;
+    setDistributionLists(prev => ({
+      ...prev,
+      [selectedBrand]: [...(prev[selectedBrand] || []), ...contacts],
+    }));
+    setCsvInput("");
+    setImportMode(false);
+  };
+
+  const clearBrandList = (brand) => {
+    setDistributionLists(prev => {
+      const next = { ...prev };
+      delete next[brand];
+      return next;
+    });
+  };
+
+  const isFirmOnList = (fName, brand) => {
+    const list = distributionLists[brand] || [];
+    if (list.length === 0) return null;
+    const firmWords = fName.toLowerCase().split(/[\s,]+/).filter(w => w.length > 2 && !["llc", "inc", "ltd", "the", "l.p.", "lp", "corp"].includes(w));
+    return list.some(c => {
+      const company = (c._company || "").toLowerCase();
+      return firmWords.some(w => company.includes(w)) || company.split(/[\s,]+/).some(w => firmWords.includes(w));
+    });
+  };
+
+  const overlaps = holdings.length > 0 ? calculateAllOverlaps(holdings) : [];
+  const gaps = overlaps.filter(o => {
+    if (o.relevance === "None") return false;
+    const onList = isFirmOnList(firmName, o.brand);
+    return onList === false;
+  });
+
+  const totalImported = Object.values(distributionLists).reduce((s, l) => s + l.length, 0);
+
+  return (
+    <div style={{ background: "#0d1f2d", border: "1px solid #1a3040", borderRadius: 8, padding: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5, color: "#5a7a8a", fontWeight: 600 }}>
+          Distribution Gap Finder
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{ fontSize: 10, color: "#3a5a6a" }}>{totalImported} contacts across {Object.keys(distributionLists).length} lists</span>
+          <button onClick={() => setImportMode(!importMode)} style={{
+            background: importMode ? "rgba(231,76,60,0.15)" : "rgba(30,111,92,0.15)",
+            color: importMode ? "#e57373" : "#7ec8a0",
+            border: `1px solid ${importMode ? "rgba(231,76,60,0.3)" : "rgba(30,111,92,0.3)"}`,
+            padding: "4px 12px", borderRadius: 4, fontSize: 11, cursor: "pointer",
+            fontFamily: "'DM Sans', sans-serif",
+          }}>
+            {importMode ? "Cancel" : "+ Import List"}
+          </button>
+        </div>
+      </div>
+
+      {importMode && (
+        <div style={{
+          background: "rgba(26,48,64,0.4)", borderRadius: 6, padding: 16, marginBottom: 16,
+          border: "1px solid rgba(30,111,92,0.2)", animation: "fadeIn 0.2s ease-out",
+        }}>
+          <div style={{ fontSize: 12, color: "#8899aa", marginBottom: 10 }}>
+            Paste a CSV of contacts for a specific affiliate brand. Expected columns: <span style={{ color: "#7ec8a0" }}>Company, Name, Email, Title</span> (flexible naming).
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1, color: "#5a7a8a", marginBottom: 4 }}>Affiliate Brand</div>
+            <select value={selectedBrand} onChange={e => setSelectedBrand(e.target.value)}
+              style={{
+                background: "#0b1620", color: "#c8d6e0", border: "1px solid #1a3040", borderRadius: 4,
+                padding: "6px 10px", fontSize: 12, fontFamily: "'DM Sans', sans-serif", width: "100%",
+              }}>
+              {AFFILIATE_BRANDS.map(b => (
+                <option key={b.name} value={b.name}>{b.name} — {b.focus}</option>
+              ))}
+            </select>
+          </div>
+          <textarea value={csvInput} onChange={e => setCsvInput(e.target.value)}
+            placeholder={"Company,Name,Email,Title\nCitadel Advisors,John Smith,jsmith@citadel.com,PM\nBridgewater Associates,Jane Doe,jdoe@bwater.com,Analyst"}
+            style={{
+              width: "100%", minHeight: 120, background: "#0b1620", color: "#c8d6e0",
+              border: "1px solid #1a3040", borderRadius: 4, padding: 10, fontSize: 12,
+              fontFamily: "'JetBrains Mono', monospace", resize: "vertical", boxSizing: "border-box",
+            }}
+          />
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
+            <span style={{ fontSize: 11, color: "#4a6a7a" }}>
+              {csvInput.split("\n").filter(l => l.trim()).length - 1} rows detected
+            </span>
+            <button onClick={importCSV} disabled={!csvInput.trim()} style={{
+              background: csvInput.trim() ? "linear-gradient(135deg, #1e6f5c, #0a3d62)" : "#1a3040",
+              color: csvInput.trim() ? "#e0f0e8" : "#3a5a6a",
+              border: "none", padding: "6px 16px", borderRadius: 4, fontSize: 12, cursor: csvInput.trim() ? "pointer" : "default",
+              fontFamily: "'DM Sans', sans-serif",
+            }}>
+              Import to {AFFILIATE_BRANDS.find(b => b.name === selectedBrand)?.shortName || selectedBrand}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {Object.keys(distributionLists).length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+          {Object.entries(distributionLists).map(([brand, contacts]) => {
+            const brandObj = AFFILIATE_BRANDS.find(b => b.name === brand);
+            return (
+              <div key={brand} style={{
+                display: "flex", alignItems: "center", gap: 6, padding: "4px 10px",
+                background: "rgba(26,48,64,0.5)", borderRadius: 4,
+                borderLeft: `3px solid ${brandObj?.color || "#5a7a8a"}`,
+              }}>
+                <span style={{ fontSize: 11, color: "#8899aa" }}>{brandObj?.shortName || brand}</span>
+                <span style={{ fontSize: 10, color: "#4a9e7a", fontFamily: "'JetBrains Mono', monospace" }}>{contacts.length}</span>
+                <button onClick={() => clearBrandList(brand)} style={{
+                  background: "none", border: "none", color: "#5a3a3a", cursor: "pointer", fontSize: 10, padding: "0 2px",
+                }}>✕</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {holdings.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1, color: "#3a5a6a", marginBottom: 10 }}>
+            Gap Analysis — {firmName}
+          </div>
+
+          {totalImported === 0 ? (
+            <div style={{
+              padding: 20, textAlign: "center", color: "#4a6a7a", fontSize: 12,
+              background: "rgba(26,48,64,0.3)", borderRadius: 6, lineHeight: 1.8,
+            }}>
+              Import distribution lists to find coverage gaps.<br />
+              Click "+ Import List" above to paste a CSV for any affiliate brand.<br />
+              <span style={{ color: "#5a7a8a", fontSize: 11 }}>
+                The gap finder will compare this firm's portfolio overlap against each brand's prospect list.
+              </span>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 6 }}>
+              {overlaps.filter(o => !o.universal).map(o => {
+                const onList = isFirmOnList(firmName, o.brand);
+                const isGap = o.relevance !== "None" && onList === false;
+                const hasData = onList !== null;
+
+                return (
+                  <div key={o.brand} style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "10px 14px", borderRadius: 6,
+                    background: isGap ? "rgba(231,76,60,0.08)" : "rgba(26,48,64,0.3)",
+                    border: `1px solid ${isGap ? "rgba(231,76,60,0.3)" : "rgba(26,48,64,0.5)"}`,
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 3, height: 24, borderRadius: 2, background: o.color }} />
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 500, color: "#d0e8dc" }}>{o.shortName}</div>
+                        <div style={{ fontSize: 10, color: "#6a8a9a" }}>
+                          {o.relevance} overlap · {o.score.toFixed(1)}% · {o.matchedCount} positions
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {!hasData ? (
+                        <span style={{ fontSize: 10, color: "#4a6a7a", fontStyle: "italic" }}>No list imported</span>
+                      ) : onList ? (
+                        <span style={{ fontSize: 10, color: "#7ec8a0", background: "rgba(126,200,160,0.1)", padding: "3px 8px", borderRadius: 3 }}>
+                          ✓ On list
+                        </span>
+                      ) : o.relevance === "None" ? (
+                        <span style={{ fontSize: 10, color: "#4a6a7a" }}>N/A</span>
+                      ) : (
+                        <span style={{ fontSize: 10, color: "#e57373", background: "rgba(231,76,60,0.1)", padding: "3px 8px", borderRadius: 3, fontWeight: 600 }}>
+                          ⚠ GAP — Not on list
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {gaps.length > 0 && (
+                <div style={{
+                  marginTop: 8, padding: 12, background: "rgba(231,76,60,0.06)",
+                  borderRadius: 6, borderLeft: "3px solid rgba(231,76,60,0.5)",
+                }}>
+                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1, color: "#e57373", marginBottom: 6, fontWeight: 600 }}>
+                    Action Items
+                  </div>
+                  {gaps.map(g => (
+                    <div key={g.brand} style={{ fontSize: 12, color: "#c8a8a8", lineHeight: 1.6, padding: "2px 0" }}>
+                      → <strong style={{ color: "#e0c0c0" }}>{g.brand}</strong>: {firmName} has {g.score.toFixed(1)}% portfolio in {AFFILIATE_BRANDS.find(b => b.name === g.brand)?.focus}
+                      ({g.matchedCount} positions) — add to outreach list
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {holdings.length === 0 && (
+        <div style={{ padding: 20, textAlign: "center", color: "#4a6a7a", fontSize: 12 }}>
+          Select a firm and load holdings to analyze distribution gaps.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// CONTACT INFO COMPONENT
+// ============================================================
+function ContactInfo({ firmName, filingInfo, apiKey }) {
+  const [contacts, setContacts] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [advData, setAdvData] = useState(null);
+  const [advError, setAdvError] = useState(null);
+
+  if (!apiKey) {
+    return (
+      <div style={{ padding: 20, background: "rgba(122,184,214,0.1)", borderRadius: 8, border: "1px solid rgba(122,184,214,0.3)", color: "#7ab8d6", fontSize: 13 }}>
+        Enter your Anthropic API key in settings to use AI features.
+      </div>
+    );
+  }
+
+  const fetchContacts = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 2000,
+          system: "You are a financial data API. Output ONLY valid JSON. No prose, no markdown, no backticks.",
+          messages: [{
+            role: "user",
+            content: `Generate sales intelligence for this institutional investor. Include SEC registration data if known (CRD number, SEC number, registration status) and key personnel.
+Return JSON only:
+{"registration":{"crd":"CRD number or null","secNumber":"SEC file number or null","status":"Active/Registered","iapd_url":"https://adviserinfo.sec.gov/firm/summary/CRD_NUMBER or null"},"keyPersonnel":[{"name":"Full Name","title":"title","role":"CIO/PM/Analyst/Trader/COO","linkedinSearchUrl":"linkedin search URL"}],"firmWebsite":"URL","mainPhone":"phone or null","emailPattern":"pattern like first.last@domain.com","bestApproach":"one sentence","gatekeepers":"who screens","bestTimeToReach":"when to call","estimatedTeamSize":"headcount estimate"}
+
+Firm: ${firmName}
+${filingInfo?.addresses?.business ? `Location: ${filingInfo.addresses.business.city}, ${filingInfo.addresses.business.stateOrCountry}` : ""}`
+          }]
+        })
+      });
+      const data = await response.json();
+      const text = data.content?.map(c => c.text || "").join("") || "";
+      const cleaned = text.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(cleaned);
+      setContacts(parsed);
+      if (parsed.registration?.crd) {
+        setAdvData({
+          CRD: parsed.registration.crd,
+          SECNumber: parsed.registration.secNumber,
+          Status: parsed.registration.status || "Active",
+          iapd_url: parsed.registration.iapd_url,
+        });
+      }
+    } catch (e) { setAdvError("Contact lookup failed: " + e.message); }
+    setLoading(false);
+  };
+
+  if (!contacts && !advData && !loading) {
+    return (
+      <button onClick={fetchContacts} style={{
+        background: "linear-gradient(135deg, #1a3a5c, #0a3d62)", color: "#7ab8d6",
+        border: "1px solid rgba(122,184,214,0.3)", padding: "10px 20px", borderRadius: 6,
+        cursor: "pointer", fontSize: 13, fontFamily: "'DM Sans', sans-serif", letterSpacing: "0.5px",
+      }}>
+        ◉ Look Up Contacts & Firm Details
+      </button>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div style={{ color: "#7ab8d6", fontSize: 13, padding: 16, animation: "pulse 1.5s infinite" }}>
+        Generating contact intelligence...
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: "#0d1f2d", border: "1px solid #1a3040", borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ padding: "14px 20px", borderBottom: "1px solid #1a3040", display: "flex", gap: 16, alignItems: "center" }}>
+        <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5, color: "#5a7a8a", fontWeight: 600 }}>
+          Contact Intelligence
+        </span>
+        <div style={{ display: "flex", gap: 6 }}>
+          {advData && <span style={{ fontSize: 9, background: "rgba(122,184,214,0.15)", color: "#7ab8d6", padding: "2px 8px", borderRadius: 10 }}>SEC IAPD</span>}
+          {contacts && <span style={{ fontSize: 9, background: "rgba(126,200,160,0.15)", color: "#7ec8a0", padding: "2px 8px", borderRadius: 10 }}>AI Enriched</span>}
+        </div>
+      </div>
+
+      <div style={{ padding: 20 }}>
+        {advData && (
+          <div style={{ marginBottom: contacts ? 20 : 0 }}>
+            <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1, color: "#3a5a6a", marginBottom: 10 }}>
+              SEC Registration
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {[
+                ["CRD #", advData.CRD],
+                ["SEC #", advData.SECNumber],
+                ["Status", advData.Status || "Active"],
+                ["IAPD Link", advData.iapd_url || (advData.CRD ? `https://adviserinfo.sec.gov/firm/summary/${advData.CRD}` : null)],
+              ].filter(([_, v]) => v).map(([label, val]) => (
+                <div key={label}>
+                  <div style={{ fontSize: 10, color: "#4a6a7a", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 3 }}>{label}</div>
+                  <div style={{ fontSize: 13, color: "#c0d8e4", wordBreak: "break-all" }}>
+                    {label === "IAPD Link" ? (
+                      <a href={val.startsWith("http") ? val : `https://${val}`} target="_blank" rel="noopener noreferrer" style={{ color: "#7ab8d6", textDecoration: "none" }}>{val.replace(/^https?:\/\//, "")}</a>
+                    ) : val}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {contacts && (
+          <div>
+            <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1, color: "#3a5a6a", marginBottom: 10, paddingTop: advData ? 16 : 0, borderTop: advData ? "1px solid #1a3040" : "none" }}>
+              AI-Generated Contact Intelligence
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+              {[
+                ["Website", contacts.firmWebsite],
+                ["Phone", contacts.mainPhone],
+                ["Email Pattern", contacts.emailPattern],
+                ["Team Size", contacts.estimatedTeamSize],
+                ["Best Time to Reach", contacts.bestTimeToReach],
+                ["Gatekeepers", contacts.gatekeepers],
+              ].filter(([_, v]) => v && v !== "null").map(([label, val]) => (
+                <div key={label}>
+                  <div style={{ fontSize: 10, color: "#4a6a7a", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 3 }}>{label}</div>
+                  <div style={{ fontSize: 13, color: "#c0d8e4" }}>{val}</div>
+                </div>
+              ))}
+            </div>
+
+            {contacts.keyPersonnel?.length > 0 && (
+              <div>
+                <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1, color: "#3a5a6a", marginBottom: 8 }}>Key Personnel</div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  {contacts.keyPersonnel.map((p, i) => (
+                    <div key={i} style={{
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      background: "rgba(26,48,64,0.5)", borderRadius: 6, padding: "8px 12px",
+                    }}>
+                      <div>
+                        <div style={{ fontSize: 13, color: "#d0e8dc", fontWeight: 500 }}>{p.name}</div>
+                        <div style={{ fontSize: 11, color: "#6a8a9a" }}>{p.title}</div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <span style={{ fontSize: 10, background: "rgba(126,200,160,0.1)", color: "#7ec8a0", padding: "3px 8px", borderRadius: 4 }}>{p.role}</span>
+                        {p.linkedinSearchUrl && (
+                          <a href={p.linkedinSearchUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "#7ab8d6", textDecoration: "none" }}>LinkedIn →</a>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {contacts.bestApproach && (
+              <div style={{ marginTop: 14, padding: 12, background: "rgba(30,111,92,0.1)", borderRadius: 6, borderLeft: "3px solid #1e6f5c" }}>
+                <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1, color: "#4a9e7a", marginBottom: 4 }}>Prospecting Approach</div>
+                <div style={{ fontSize: 13, color: "#a8e6cf", lineHeight: 1.5, fontStyle: "italic" }}>{contacts.bestApproach}</div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// AI ENRICHMENT COMPONENT
+// ============================================================
+function AIEnrichment({ firmName, holdings, apiKey }) {
+  const [analysis, setAnalysis] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  if (!apiKey) {
+    return (
+      <div style={{ padding: 20, background: "rgba(122,184,214,0.1)", borderRadius: 8, border: "1px solid rgba(122,184,214,0.3)", color: "#7ab8d6", fontSize: 13 }}>
+        Enter your Anthropic API key in settings to use AI features.
+      </div>
+    );
+  }
+
+  const runAnalysis = async () => {
+    setLoading(true);
+    try {
+      const top20 = holdings.slice(0, 20).map(h => {
+        const mapped = CUSIP_SECTOR_MAP[h.cusip];
+        return `${h.nameOfIssuer}: ${formatValue(h.value * 1000)} (${formatShares(h.shrsOrPrnAmt?.sshPrnamt)} shares)${mapped ? ` [${mapped.sector}/${mapped.industry}]` : ""}`;
+      }).join("\n");
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          messages: [{
+            role: "user",
+            content: `You are an institutional investor analyst. Given this firm's top 20 13F holdings with sector tags, provide a profile for a sales team. JSON only, no markdown:
+{"investmentStyle":"value/growth/quant/multi-strategy/etc","sectorFocus":["top 3 sectors"],"marketCapBias":"mega/large/mid/small/mixed","estimatedAUM":"from visible holdings","keyInsight":"one useful sentence","prospectingAngle":"how to sell research services to this firm"}
+
+Firm: ${firmName}
+Holdings:
+${top20}`
+          }]
+        })
+      });
+      const data = await response.json();
+      const text = data.content?.map(c => c.text || "").join("") || "";
+      setAnalysis(JSON.parse(text.replace(/```json|```/g, "").trim()));
+    } catch (e) { /* silent fail */ }
+    setLoading(false);
+  };
+
+  if (!analysis && !loading) {
+    return (
+      <button onClick={runAnalysis} style={{
+        background: "linear-gradient(135deg, #0a3d62, #1e6f5c)", color: "#e0f0e8",
+        border: "1px solid #1e6f5c", padding: "10px 20px", borderRadius: 6,
+        cursor: "pointer", fontSize: 13, fontFamily: "'DM Sans', sans-serif",
+      }}>
+        ✦ Run AI Portfolio Analysis
+      </button>
+    );
+  }
+  if (loading) return <div style={{ color: "#7ec8a0", fontSize: 13, padding: 16, animation: "pulse 1.5s infinite" }}>Analyzing portfolio...</div>;
+  if (!analysis) return null;
+
+  return (
+    <div style={{
+      background: "linear-gradient(135deg, rgba(10,61,98,0.3), rgba(30,111,92,0.15))",
+      border: "1px solid rgba(30,111,92,0.4)", borderRadius: 8, padding: 20,
+    }}>
+      <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5, color: "#7ec8a0", marginBottom: 16, fontWeight: 600 }}>
+        ✦ AI Portfolio Profile
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        {[["Investment Style", analysis.investmentStyle], ["Market Cap Bias", analysis.marketCapBias],
+          ["Est. AUM", analysis.estimatedAUM], ["Sector Focus", analysis.sectorFocus?.join(", ")]
+        ].map(([l, v]) => (
+          <div key={l}>
+            <div style={{ fontSize: 10, color: "#5a7a8a", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{l}</div>
+            <div style={{ fontSize: 14, color: "#d0e8dc" }}>{v}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <div style={{ fontSize: 10, color: "#5a7a8a", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Key Insight</div>
+        <div style={{ fontSize: 13, color: "#c0d8cc", lineHeight: 1.5 }}>{analysis.keyInsight}</div>
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <div style={{ fontSize: 10, color: "#5a7a8a", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Prospecting Angle</div>
+        <div style={{ fontSize: 13, color: "#a8e6cf", lineHeight: 1.5, fontStyle: "italic" }}>{analysis.prospectingAngle}</div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// MAIN APP
+// ============================================================
+function InvestorIntel() {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedFirm, setSelectedFirm] = useState(null);
+  const [holdings, setHoldings] = useState([]);
+  const [filingInfo, setFilingInfo] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [sortKey, setSortKey] = useState("value");
+  const [sortDir, setSortDir] = useState("desc");
+  const [holdingsSearch, setHoldingsSearch] = useState("");
+  const [view, setView] = useState("search");
+  const [activeTab, setActiveTab] = useState("holdings");
+  const [firmTypeFilter, setFirmTypeFilter] = useState("All");
+  const [apiKey, setApiKey] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
+
+  const firmTypes = ["All", ...new Set(SAMPLE_FIRMS.map(f => f.type))];
+  const filteredFirms = SAMPLE_FIRMS.filter(f =>
+    f.name.toLowerCase().includes(searchTerm.toLowerCase()) &&
+    (firmTypeFilter === "All" || f.type === firmTypeFilter)
+  );
+
+  // ---- Helper: fetch a SEC URL via the Vercel /api/edgar proxy ----
+  const secFetch = async (secUrl) => {
+    const res = await fetch(`/api/edgar?url=${encodeURIComponent(secUrl)}`);
+    if (!res.ok) throw new Error(`SEC proxy error (${res.status})`);
+    return res;
+  };
+
+  // ---- Live SEC EDGAR fetch via /api/edgar proxy ----
+  const fetchHoldingsLive = async (firm) => {
+    const cikPadded = firm.cik.replace(/^0+/, "").padStart(10, "0");
+    const subRes = await secFetch(`https://data.sec.gov/submissions/CIK${cikPadded}.json`);
+    const subData = await subRes.json();
+    const recentFilings = subData.filings?.recent;
+    if (!recentFilings) throw new Error("No filing data found");
+
+    let filingIdx = -1;
+    for (let i = 0; i < recentFilings.form.length; i++) {
+      if (recentFilings.form[i] === "13F-HR") { filingIdx = i; break; }
+    }
+    if (filingIdx === -1) throw new Error("No 13F-HR filing found for this entity");
+
+    const accession = recentFilings.accessionNumber[filingIdx].replace(/-/g, "");
+    const accessionFormatted = recentFilings.accessionNumber[filingIdx];
+    setFilingInfo({
+      filingDate: recentFilings.filingDate[filingIdx],
+      reportDate: recentFilings.reportDate?.[filingIdx] || recentFilings.filingDate[filingIdx],
+      accession: accessionFormatted,
+      entityName: subData.name, entityType: subData.entityType,
+      sic: subData.sic, sicDescription: subData.sicDescription,
+      stateOfIncorporation: subData.stateOfIncorporation,
+      addresses: subData.addresses,
+    });
+
+    // Fetch the filing index to find the info table XML
+    const cikClean = firm.cik.replace(/^0+/, "");
+    const indexRes = await secFetch(`https://www.sec.gov/Archives/edgar/data/${cikClean}/${accession}/`);
+    const indexHtml = await indexRes.text();
+    const xmlMatch = indexHtml.match(/href="([^"]*(?:infotable|information_table|13f)[^"]*\.xml)"/i);
+    if (!xmlMatch) throw new Error("Could not locate 13F XML in filing index");
+
+    const xmlUrl = `https://www.sec.gov/Archives/edgar/data/${cikClean}/${accession}/${xmlMatch[1]}`;
+    const xmlRes = await secFetch(xmlUrl);
+    const xmlText = await xmlRes.text();
+
+    const parsedHoldings = [];
+    const allElements = xmlText.split(/<\/(?:ns1:)?infoTable>/i);
+    for (const block of allElements) {
+      const getName = (tag) => {
+        const regex = new RegExp(`<(?:ns1:)?${tag}>([^<]+)<`, "i");
+        const m = block.match(regex);
+        return m ? m[1].trim() : null;
+      };
+      const issuer = getName("nameOfIssuer");
+      if (!issuer) continue;
+      parsedHoldings.push({
+        nameOfIssuer: issuer, titleOfClass: getName("titleOfClass") || "",
+        cusip: getName("cusip") || "", value: parseInt(getName("value") || "0"),
+        shrsOrPrnAmt: { sshPrnamt: parseInt(getName("sshPrnamt") || "0"), sshPrnamtType: getName("sshPrnamtType") || "SH" },
+        investmentDiscretion: getName("investmentDiscretion") || "",
+        votingAuthority: { sole: parseInt(getName("Sole") || "0"), shared: parseInt(getName("Shared") || "0"), none: parseInt(getName("None") || "0") },
+      });
+    }
+    parsedHoldings.sort((a, b) => b.value - a.value);
+    return parsedHoldings;
+  };
+
+  // ---- Main fetch: live SEC via proxy → sample data fallback ----
+  const fetchHoldings = async (firm) => {
+    setLoading(true); setError(null); setSelectedFirm(firm); setView("detail");
+    setHoldings([]); setFilingInfo(null); setActiveTab("holdings");
+    try {
+      // Try live SEC data via /api/edgar proxy
+      const liveHoldings = await fetchHoldingsLive(firm);
+      setHoldings(liveHoldings);
+    } catch (liveErr) {
+      console.log("Live SEC fetch failed, using sample data:", liveErr.message);
+      // Fallback: generate sample data locally (works offline / opened as file)
+      try {
+        const result = generateSampleHoldings(firm);
+        setFilingInfo({ ...result.filingInfo, source: "sample" });
+        setHoldings(result.holdings);
+      } catch (e) { setError(e.message); }
+    }
+    setLoading(false);
+  };
+
+  const sortedHoldings = [...holdings]
+    .filter(h => !holdingsSearch || h.nameOfIssuer.toLowerCase().includes(holdingsSearch.toLowerCase()) || h.cusip.includes(holdingsSearch))
+    .sort((a, b) => {
+      let aV, bV;
+      if (sortKey === "value") { aV = a.value; bV = b.value; }
+      else if (sortKey === "shares") { aV = a.shrsOrPrnAmt?.sshPrnamt || 0; bV = b.shrsOrPrnAmt?.sshPrnamt || 0; }
+      else { aV = a.nameOfIssuer; bV = b.nameOfIssuer; }
+      if (typeof aV === "string") return sortDir === "asc" ? aV.localeCompare(bV) : bV.localeCompare(aV);
+      return sortDir === "asc" ? aV - bV : bV - aV;
+    });
+
+  const totalValue = holdings.reduce((s, h) => s + h.value, 0) * 1000;
+  const toggleSort = (key) => { if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortKey(key); setSortDir("desc"); } };
+  const SortIcon = ({ active, dir }) => <span style={{ marginLeft: 4, opacity: active ? 1 : 0.3, fontSize: 10 }}>{active && dir === "asc" ? "▲" : "▼"}</span>;
+
+  const TABS = [
+    ["holdings", "Holdings"],
+    ["overview", "Overview"],
+    ["coverage", "Coverage Overlap"],
+    ["gaps", "Gap Finder"],
+    ["contacts", "Contacts"],
+    ["ai", "AI Analysis"],
+  ];
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#0b1620", color: "#c8d6e0", fontFamily: "'DM Sans', -apple-system, sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
+        @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
+        @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes slideIn { from { opacity:0; transform:translateX(-12px); } to { opacity:1; transform:translateX(0); } }
+        .row-hover:hover { background: rgba(30,111,92,0.08) !important; }
+        .firm-card:hover { background: rgba(30,111,92,0.12) !important; border-color: rgba(30,111,92,0.5) !important; transform: translateY(-1px); }
+        .tab-btn { background:none; border:none; padding:8px 14px; color:#5a7a8a; cursor:pointer; font-size:11px; font-family:'DM Sans',sans-serif; border-bottom:2px solid transparent; transition:all 0.15s; white-space:nowrap; }
+        .tab-btn:hover { color:#7ec8a0; }
+        .tab-btn.active { color:#7ec8a0; border-bottom-color:#1e6f5c; }
+        input:focus, select:focus, textarea:focus { outline:none; border-color:#1e6f5c !important; box-shadow:0 0 0 2px rgba(30,111,92,0.2); }
+        .type-pill { padding:3px 8px; border-radius:3px; font-size:9px; text-transform:uppercase; letter-spacing:0.5px; cursor:pointer; border:1px solid transparent; transition:all 0.15s; }
+        .type-pill:hover { opacity:0.9; }
+      `}</style>
+
+      <div style={{ background: "linear-gradient(180deg, #0d1f2d 0%, #0b1620 100%)", borderBottom: "1px solid rgba(30,111,92,0.2)", padding: "20px 32px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", maxWidth: 1200, margin: "0 auto" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#1e6f5c", boxShadow: "0 0 8px rgba(30,111,92,0.6)" }} />
+              <span style={{ fontSize: 18, fontWeight: 700, background: "linear-gradient(135deg, #7ec8a0, #4a9e7a)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+                Investor Intel Pro
+              </span>
+              <span style={{ fontSize: 10, color: "#3a5a6a", marginLeft: 4 }}>v3</span>
+            </div>
+            <div style={{ fontSize: 11, color: "#5a7a8a", marginTop: 4, letterSpacing: "0.5px" }}>
+              SEC EDGAR 13F · {SAMPLE_FIRMS.length} Firms · {AFFILIATE_BRANDS.length} Affiliate Brands · Coverage Overlap · Gap Finder
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <button onClick={() => setShowSettings(!showSettings)} style={{
+              background: "none", border: "none", color: "#5a7a8a", cursor: "pointer", fontSize: 18, padding: 0,
+              transition: "color 0.15s"
+            }} title="Settings">
+              ⚙
+            </button>
+            <div style={{ fontSize: 10, color: "#3a5a6a", letterSpacing: 1, textTransform: "uppercase", fontWeight: 500, padding: "6px 12px", border: "1px solid rgba(30,111,92,0.2)", borderRadius: 4 }}>
+              Analyst Hub · Internal Tool
+            </div>
+          </div>
+        </div>
+
+        {showSettings && (
+          <div style={{ marginTop: 16, padding: 16, background: "rgba(26,48,64,0.4)", borderRadius: 6, maxWidth: 1200, margin: "16px auto 0" }}>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "#5a7a8a", marginBottom: 10, fontWeight: 600 }}>
+              API Settings
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={e => setApiKey(e.target.value)}
+                placeholder="Enter your Anthropic API key (sk-...)"
+                style={{
+                  flex: 1, padding: "8px 12px", background: "#0b1620", border: "1px solid #1a3040",
+                  borderRadius: 4, color: "#c8d6e0", fontSize: 12, fontFamily: "'DM Sans', sans-serif"
+                }}
+              />
+              <button onClick={() => setShowSettings(false)} style={{
+                background: "rgba(30,111,92,0.15)", color: "#7ec8a0", border: "1px solid rgba(30,111,92,0.3)",
+                padding: "8px 16px", borderRadius: 4, fontSize: 11, cursor: "pointer", fontFamily: "'DM Sans', sans-serif"
+              }}>
+                Save & Close
+              </button>
+            </div>
+            <div style={{ fontSize: 10, color: "#4a6a7a", marginTop: 8 }}>
+              Your API key is stored locally in browser memory only. Get yours at https://console.anthropic.com/
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 32px" }}>
+
+        {view === "search" && (
+          <div style={{ animation: "fadeIn 0.3s ease-out" }}>
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, color: "#5a7a8a", marginBottom: 8 }}>Search {SAMPLE_FIRMS.length} institutional investors</div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                  placeholder="e.g. Bridgewater, Citadel, BlackRock..."
+                  style={{ flex: 1, minWidth: 280, padding: "12px 16px", background: "#0d1f2d", border: "1px solid #1a3040", borderRadius: 6, color: "#c8d6e0", fontSize: 14, fontFamily: "'DM Sans', sans-serif", boxSizing: "border-box" }}
+                />
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  {firmTypes.map(type => (
+                    <button key={type} className="type-pill" onClick={() => setFirmTypeFilter(type)}
+                      style={{
+                        background: firmTypeFilter === type ? "rgba(30,111,92,0.2)" : "rgba(26,48,64,0.5)",
+                        color: firmTypeFilter === type ? "#7ec8a0" : "#5a7a8a",
+                        borderColor: firmTypeFilter === type ? "rgba(30,111,92,0.4)" : "transparent",
+                      }}>
+                      {type} {type !== "All" && `(${SAMPLE_FIRMS.filter(f => f.type === type).length})`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 10 }}>
+              {filteredFirms.map((firm, i) => (
+                <div key={firm.cik + firm.name} className="firm-card" onClick={() => fetchHoldings(firm)}
+                  style={{ background: "rgba(13,31,45,0.6)", border: "1px solid #1a3040", borderRadius: 8, padding: "14px 18px", cursor: "pointer", transition: "all 0.15s ease", animation: `slideIn 0.3s ease-out ${Math.min(i * 0.015, 0.5)}s both` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#d0e8dc", marginBottom: 4, flex: 1 }}>{firm.name}</div>
+                    <span style={{ fontSize: 9, color: "#4a6a7a", background: "rgba(26,48,64,0.8)", padding: "2px 6px", borderRadius: 3, flexShrink: 0 }}>{firm.type}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#4a6a7a", fontFamily: "'JetBrains Mono', monospace" }}>CIK {firm.cik}</div>
+                </div>
+              ))}
+            </div>
+            {filteredFirms.length === 0 && <div style={{ color: "#3a5a6a", fontSize: 14, padding: 40, textAlign: "center" }}>No firms match "{searchTerm}" {firmTypeFilter !== "All" ? `in ${firmTypeFilter}` : ""}</div>}
+
+            <div style={{ marginTop: 32, padding: 20, background: "rgba(10,61,98,0.15)", border: "1px solid rgba(10,61,98,0.3)", borderRadius: 8, fontSize: 12, color: "#5a7a8a", lineHeight: 1.7 }}>
+              <strong style={{ color: "#7ec8a0" }}>Investor Intel Pro</strong> — Real 13F institutional ownership from SEC EDGAR, IAPD firm registration, sector mapping, coverage overlap scoring against all {AFFILIATE_BRANDS.length} Analyst Hub affiliate brands, and distribution gap analysis. Built as a BigDough alternative at near-zero cost.
+            </div>
+          </div>
+        )}
+
+        {view === "detail" && selectedFirm && (
+          <div style={{ animation: "fadeIn 0.3s ease-out" }}>
+            <button onClick={() => { setView("search"); setSelectedFirm(null); setHoldings([]); }}
+              style={{ background: "none", border: "none", color: "#4a9e7a", cursor: "pointer", fontSize: 13, padding: 0, marginBottom: 16, fontFamily: "'DM Sans', sans-serif" }}>
+              ← Back to search
+            </button>
+
+            <div style={{ marginBottom: 16 }}>
+              <h2 style={{ fontSize: 22, fontWeight: 700, color: "#d0e8dc", margin: 0 }}>{filingInfo?.entityName || selectedFirm.name}</h2>
+              {filingInfo && (
+                <div style={{ display: "flex", gap: 24, marginTop: 6, fontSize: 12, color: "#5a7a8a", flexWrap: "wrap" }}>
+                  <span>CIK: <span style={{ color: "#7a9aaa", fontFamily: "'JetBrains Mono', monospace" }}>{selectedFirm.cik}</span></span>
+                  <span>Report: <span style={{ color: "#7a9aaa" }}>{filingInfo.reportDate}</span></span>
+                  <span>Filed: <span style={{ color: "#7a9aaa" }}>{filingInfo.filingDate}</span></span>
+                  {filingInfo.addresses?.business && <span>{filingInfo.addresses.business.city}, {filingInfo.addresses.business.stateOrCountry}</span>}
+                  {selectedFirm.type && <span style={{ background: "rgba(26,48,64,0.8)", padding: "1px 6px", borderRadius: 3, fontSize: 10 }}>{selectedFirm.type}</span>}
+                </div>
+              )}
+            </div>
+
+            {loading && <div style={{ textAlign: "center", padding: 60, color: "#5a7a8a" }}><div style={{ animation: "pulse 1.5s infinite", fontSize: 14 }}>Fetching 13F holdings from SEC EDGAR...</div></div>}
+            {error && <div style={{ background: "rgba(231,76,60,0.1)", border: "1px solid rgba(231,76,60,0.3)", borderRadius: 8, padding: 20, color: "#e74c3c", fontSize: 13 }}>{error}</div>}
+
+            {!loading && holdings.length > 0 && (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 16 }}>
+                  {[
+                    ["Total 13F Value", formatValue(totalValue)],
+                    ["Positions", holdings.length.toLocaleString()],
+                    ["Top Holding", holdings[0]?.nameOfIssuer],
+                    ["Top Position %", `${((holdings[0]?.value / holdings.reduce((s, h) => s + h.value, 0)) * 100).toFixed(1)}%`],
+                  ].map(([l, v]) => (
+                    <div key={l} style={{ background: "#0d1f2d", border: "1px solid #1a3040", borderRadius: 8, padding: "12px 14px" }}>
+                      <div style={{ fontSize: 10, color: "#4a6a7a", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{l}</div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: "#d0e8dc" }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ borderBottom: "1px solid #1a3040", marginBottom: 16, display: "flex", overflowX: "auto" }}>
+                  {TABS.map(([key, label]) => (
+                    <button key={key} className={`tab-btn ${activeTab === key ? "active" : ""}`} onClick={() => setActiveTab(key)}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {activeTab === "holdings" && (
+                  <div>
+                    <div style={{ marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                      <div style={{ fontSize: 13, color: "#5a7a8a" }}>{sortedHoldings.length} holdings</div>
+                      <input type="text" value={holdingsSearch} onChange={e => setHoldingsSearch(e.target.value)}
+                        placeholder="Filter by issuer or CUSIP..."
+                        style={{ padding: "8px 12px", background: "#0d1f2d", border: "1px solid #1a3040", borderRadius: 6, color: "#c8d6e0", fontSize: 12, width: 260, fontFamily: "'DM Sans', sans-serif" }}
+                      />
+                    </div>
+                    <div style={{ overflowX: "auto", borderRadius: 8, border: "1px solid #1a3040" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ background: "#0d1f2d" }}>
+                            {[{ key: "name", label: "Issuer", w: "28%" }, { key: null, label: "Sector", w: "14%" }, { key: null, label: "CUSIP", w: "10%" }, { key: null, label: "Class", w: "10%" }, { key: "shares", label: "Shares", w: "12%" }, { key: "value", label: "Value", w: "13%" }, { key: null, label: "% Port", w: "13%" }]
+                              .map(col => (
+                                <th key={col.label} onClick={() => col.key && toggleSort(col.key)}
+                                  style={{ padding: "10px 10px", textAlign: col.key === "name" ? "left" : "right", color: "#5a7a8a", fontWeight: 600, fontSize: 10, textTransform: "uppercase", letterSpacing: 1, borderBottom: "1px solid #1a3040", cursor: col.key ? "pointer" : "default", width: col.w, whiteSpace: "nowrap", userSelect: "none" }}>
+                                  {col.label}{col.key && <SortIcon active={sortKey === col.key} dir={sortDir} />}
+                                </th>
+                              ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sortedHoldings.slice(0, 100).map((h, i) => {
+                            const pct = ((h.value / holdings.reduce((s, x) => s + x.value, 0)) * 100);
+                            const mapped = CUSIP_SECTOR_MAP[h.cusip];
+                            return (
+                              <tr key={`${h.cusip}-${i}`} className="row-hover" style={{ borderBottom: "1px solid rgba(26,48,64,0.5)" }}>
+                                <td style={{ padding: "8px 10px", fontWeight: 500, color: "#d0e8dc" }}>
+                                  {h.nameOfIssuer}
+                                  {mapped?.ticker && <span style={{ marginLeft: 6, fontSize: 10, color: "#4a9e7a" }}>{mapped.ticker}</span>}
+                                </td>
+                                <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                                  {mapped ? (
+                                    <span style={{ fontSize: 10, background: `${SECTOR_COLORS[mapped.sector]}15`, color: SECTOR_COLORS[mapped.sector], padding: "2px 6px", borderRadius: 3 }}>
+                                      {mapped.sector}
+                                    </span>
+                                  ) : <span style={{ fontSize: 10, color: "#3a5a6a" }}>—</span>}
+                                </td>
+                                <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: "#5a7a8a" }}>{h.cusip}</td>
+                                <td style={{ padding: "8px 10px", textAlign: "right", color: "#6a8a9a", fontSize: 11 }}>{h.titleOfClass}</td>
+                                <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{formatShares(h.shrsOrPrnAmt?.sshPrnamt)}</td>
+                                <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600, color: "#7ec8a0", fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>{formatValue(h.value * 1000)}</td>
+                                <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
+                                    <div style={{ width: 40, height: 4, background: "#1a3040", borderRadius: 2, overflow: "hidden" }}>
+                                      <div style={{ width: `${Math.min(pct * 5, 100)}%`, height: "100%", background: "linear-gradient(90deg, #1e6f5c, #7ec8a0)", borderRadius: 2 }} />
+                                    </div>
+                                    <span style={{ fontSize: 11, color: "#6a8a9a", fontFamily: "'JetBrains Mono', monospace", minWidth: 40, textAlign: "right" }}>{pct.toFixed(1)}%</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      {sortedHoldings.length > 100 && <div style={{ padding: 12, textAlign: "center", fontSize: 12, color: "#4a6a7a", borderTop: "1px solid #1a3040" }}>Showing 100 of {sortedHoldings.length}</div>}
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === "overview" && (
+                  <div style={{ display: "grid", gap: 16 }}>
+                    <SectorBreakdown holdings={holdings} />
+                    <CoverageOverlap holdings={holdings} />
+                  </div>
+                )}
+
+                {activeTab === "coverage" && <CoverageOverlap holdings={holdings} />}
+
+                {activeTab === "gaps" && <GapFinder holdings={holdings} firmName={selectedFirm.name} allFirms={SAMPLE_FIRMS} />}
+
+                {activeTab === "contacts" && <ContactInfo firmName={selectedFirm.name} filingInfo={filingInfo} apiKey={apiKey} />}
+
+                {activeTab === "ai" && <AIEnrichment firmName={selectedFirm.name} holdings={holdings} apiKey={apiKey} />}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(React.createElement(InvestorIntel));
+  </script>
+</body>
+</html>
