@@ -22,6 +22,20 @@
 </head>
 <body>
   <div id="root"></div>
+  <script>
+    // Global formatting utilities (outside Babel scope)
+    function formatValue(val) {
+      if (val == null) return "-";
+      if (val >= 1e9) return "$" + (val / 1e9).toFixed(1) + "B";
+      if (val >= 1e6) return "$" + (val / 1e6).toFixed(1) + "M";
+      if (val >= 1e3) return "$" + (val / 1e3).toFixed(1) + "K";
+      return "$" + val.toLocaleString();
+    }
+    function formatShares(num) {
+      if (num == null) return "-";
+      return num.toLocaleString();
+    }
+  </script>
   <script type="text/babel">
     const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
@@ -591,18 +605,7 @@ const SECTOR_COLORS = {
   "Unknown": "#546e7a",
 };
 
-// Formatting utilities
-function formatValue(val) {
-  if (val == null) return "-";
-  if (val >= 1e9) return "$" + (val / 1e9).toFixed(1) + "B";
-  if (val >= 1e6) return "$" + (val / 1e6).toFixed(1) + "M";
-  if (val >= 1e3) return "$" + (val / 1e3).toFixed(1) + "K";
-  return "$" + val.toLocaleString();
-}
-function formatShares(num) {
-  if (num == null) return "-";
-  return num.toLocaleString();
-}
+// Formatting utilities (defined in global script block above)
 
 // ============================================================
 // COVERAGE OVERLAP SCORING ENGINE
