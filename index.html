@@ -739,7 +739,16 @@ function loadData() {
     const raw = localStorage.getItem(DB_KEY);
     if (!raw) return { ...EMPTY_DB };
     const d = JSON.parse(raw);
-    return { salespeople: d.salespeople || [], accounts: d.accounts || [], campaigns: d.campaigns || [] };
+    const result = { salespeople: d.salespeople || [], accounts: d.accounts || [], campaigns: d.campaigns || [] };
+    // Migration: ensure every account has a unique id
+    let needsSave = false;
+    result.accounts.forEach(a => {
+      if (!a.id) { a.id = "acct-" + generateId(); needsSave = true; }
+    });
+    if (needsSave) {
+      localStorage.setItem(DB_KEY, JSON.stringify(result));
+    }
+    return result;
   } catch { return { ...EMPTY_DB }; }
 }
 
@@ -844,12 +853,12 @@ function CSVImporter({ onImport, onClose }) {
     const rawHeaders = lines[0].split(",").map(h => h.trim().replace(/^["']|["']$/g, ""));
     const headers = rawHeaders.map(h => h.toLowerCase());
 
-    // Required: salesperson, account_name, cik
+    // Required: salesperson, account_name (cik is optional)
     const spIdx = headers.findIndex(h => h.includes("salesperson") || h.includes("sales_person") || h.includes("rep"));
     const nameIdx = headers.findIndex(h => h.includes("account") || h.includes("firm") || h.includes("company"));
     const cikIdx = headers.findIndex(h => h.includes("cik"));
-    if (spIdx === -1 || nameIdx === -1 || cikIdx === -1) {
-      throw new Error("CSV must have columns for salesperson, account_name, and cik");
+    if (spIdx === -1 || nameIdx === -1) {
+      throw new Error("CSV must have columns for salesperson and account_name");
     }
 
     const typeIdx = headers.findIndex(h => h === "type" || h.includes("account_type") || h.includes("firm_type"));
@@ -875,8 +884,9 @@ function CSVImporter({ onImport, onClose }) {
       }
       vals.push(current.trim());
 
-      const cikRaw = vals[cikIdx]?.replace(/^["']|["']$/g, "") || "";
-      if (!cikRaw) continue;
+      const cikRaw = cikIdx >= 0 ? (vals[cikIdx]?.replace(/^["']|["']$/g, "") || "") : "";
+      const accountName = vals[nameIdx]?.replace(/^["']|["']$/g, "") || "";
+      if (!accountName) continue;
 
       const paying = {};
       payingCols.forEach(pc => {
@@ -888,8 +898,8 @@ function CSVImporter({ onImport, onClose }) {
 
       rows.push({
         salesperson: vals[spIdx]?.replace(/^["']|["']$/g, "") || "",
-        accountName: vals[nameIdx]?.replace(/^["']|["']$/g, "") || "",
-        cik: cikRaw.replace(/^0+/, "").padStart(10, "0"),
+        accountName,
+        cik: cikRaw ? cikRaw.replace(/^0+/, "").padStart(10, "0") : "",
         type: typeIdx >= 0 ? vals[typeIdx]?.replace(/^["']|["']$/g, "") || "Hedge Fund" : "Hedge Fund",
         contactName: contactNameIdx >= 0 ? vals[contactNameIdx]?.replace(/^["']|["']$/g, "") || "" : "",
         contactTitle: titleIdx >= 0 ? vals[titleIdx]?.replace(/^["']|["']$/g, "") || "" : "",
@@ -930,11 +940,12 @@ function CSVImporter({ onImport, onClose }) {
         spMap[row.salesperson] = { id: "sp-" + generateId(), name: row.salesperson };
       }
 
-      // Accounts (keyed by CIK)
-      const cikKey = row.cik;
-      if (!acctMap[cikKey]) {
-        acctMap[cikKey] = {
-          cik: cikKey,
+      // Accounts (keyed by name+salesperson for uniqueness)
+      const acctKey = row.accountName + "|" + row.salesperson;
+      if (!acctMap[acctKey]) {
+        acctMap[acctKey] = {
+          id: "acct-" + generateId(),
+          cik: row.cik,
           name: row.accountName,
           type: row.type,
           salesperson: spMap[row.salesperson].id,
@@ -948,14 +959,14 @@ function CSVImporter({ onImport, onClose }) {
 
       // Merge paying flags
       Object.entries(row.paying).forEach(([brand, val]) => {
-        if (val) acctMap[cikKey].paying[brand] = true;
+        if (val) acctMap[acctKey].paying[brand] = true;
       });
 
       // Add contact if provided
       if (row.contactName) {
-        const existingContact = acctMap[cikKey].contacts.find(c => c.email === row.contactEmail && c.name === row.contactName);
+        const existingContact = acctMap[acctKey].contacts.find(c => c.email === row.contactEmail && c.name === row.contactName);
         if (!existingContact) {
-          acctMap[cikKey].contacts.push({
+          acctMap[acctKey].contacts.push({
             name: row.contactName, title: row.contactTitle,
             email: row.contactEmail, phone: row.contactPhone,
           });
@@ -984,8 +995,8 @@ function CSVImporter({ onImport, onClose }) {
       </div>
 
       <div style={{ fontSize: 12, color: "#6a8a9a", marginBottom: 12, lineHeight: 1.6 }}>
-        Required columns: <span className="mono" style={{ color: "#7ec8a0" }}>salesperson, account_name, cik</span><br/>
-        Optional: <span className="mono" style={{ color: "#5a7a8a" }}>type, contact_name, title, email, phone, paying_cannonball, paying_fermium, ...</span>
+        Required columns: <span className="mono" style={{ color: "#7ec8a0" }}>salesperson, account_name</span><br/>
+        Optional: <span className="mono" style={{ color: "#5a7a8a" }}>cik, type, contact_name, title, email, phone, paying_cannonball, paying_fermium, ...</span>
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
@@ -1398,7 +1409,7 @@ function CampaignManager({ data, setData, currentAccount }) {
     const updated = {
       ...data,
       campaigns: data.campaigns.map(c => c.id === campId && !c.accounts.includes(currentAccount) ? { ...c, accounts: [...c.accounts, currentAccount] } : c),
-      accounts: data.accounts.map(a => a.cik === currentAccount && !a.campaigns.includes(campId) ? { ...a, campaigns: [...a.campaigns, campId] } : a),
+      accounts: data.accounts.map(a => a.id === currentAccount && !a.campaigns.includes(campId) ? { ...a, campaigns: [...a.campaigns, campId] } : a),
     };
     setData(updated);
     saveData(updated);
@@ -1409,14 +1420,14 @@ function CampaignManager({ data, setData, currentAccount }) {
     const updated = {
       ...data,
       campaigns: data.campaigns.map(c => c.id === campId ? { ...c, accounts: c.accounts.filter(a => a !== currentAccount) } : c),
-      accounts: data.accounts.map(a => a.cik === currentAccount ? { ...a, campaigns: a.campaigns.filter(c => c !== campId) } : a),
+      accounts: data.accounts.map(a => a.id === currentAccount ? { ...a, campaigns: a.campaigns.filter(c => c !== campId) } : a),
     };
     setData(updated);
     saveData(updated);
   };
 
   const exportCampaign = (campaign) => {
-    const accts = data.accounts.filter(a => campaign.accounts.includes(a.cik));
+    const accts = data.accounts.filter(a => campaign.accounts.includes(a.id));
     let csv = "account_name,cik,contact_name,contact_title,contact_email,contact_phone\n";
     accts.forEach(a => {
       if (a.contacts.length === 0) {
@@ -1610,7 +1621,7 @@ function AffiliateDetail({ brandName, accounts, onSelectAccount, onBack }) {
 
       <div style={{ display: "grid", gap: 8 }}>
         {accountScores.map(acct => (
-          <div key={acct.cik} onClick={() => onSelectAccount(acct.cik)}
+          <div key={acct.id} onClick={() => onSelectAccount(acct.id)}
             style={{
               background: "#0d1f2d", border: "1px solid #1a3040", borderRadius: 8, padding: "14px 20px",
               cursor: "pointer", transition: "all 0.15s", display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -1624,7 +1635,7 @@ function AffiliateDetail({ brandName, accounts, onSelectAccount, onBack }) {
                 {acct.paying?.[brandName] && <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, background: "rgba(79,195,247,0.15)", color: "#4fc3f7", fontWeight: 600 }}>PAYING</span>}
               </div>
               <div style={{ fontSize: 11, color: "#5a7a8a", marginTop: 2 }}>
-                {acct.type} · {acct.contacts?.length || 0} contact{acct.contacts?.length !== 1 ? "s" : ""} · CIK {acct.cik}
+                {acct.type || "Account"} · {acct.contacts?.length || 0} contact{acct.contacts?.length !== 1 ? "s" : ""}{acct.cik ? ` · CIK ${acct.cik}` : ""}
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1645,24 +1656,35 @@ function AffiliateDetail({ brandName, accounts, onSelectAccount, onBack }) {
 // ============================================================
 // ACCOUNT DETAIL — holdings, overlap, contacts, campaigns
 // ============================================================
-function AccountDetail({ accountCik, data, setData, onBack }) {
+function AccountDetail({ accountId, data, setData, onBack }) {
   const [holdings, setHoldings] = useState([]);
   const [filingInfo, setFilingInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("holdings");
+  const [noCik, setNoCik] = useState(false);
 
-  const account = data.accounts.find(a => a.cik === accountCik);
+  const account = data.accounts.find(a => a.id === accountId);
 
   useEffect(() => {
     if (!account) return;
     let cancelled = false;
     setLoading(true);
+    setNoCik(false);
 
     (async () => {
       if (account.cachedHoldings && account.lastFetched) {
         setHoldings(account.cachedHoldings);
         setFilingInfo(account.cachedFilingInfo || null);
         setLoading(false);
+        return;
+      }
+      // If no CIK, use sample holdings
+      if (!account.cik) {
+        const sample = generateSampleHoldings({ name: account.name, cik: "0000000000", type: account.type || "Hedge Fund" });
+        setHoldings(sample.holdings);
+        setFilingInfo(sample.filingInfo);
+        setNoCik(true);
+        if (!cancelled) setLoading(false);
         return;
       }
       try {
@@ -1673,13 +1695,13 @@ function AccountDetail({ accountCik, data, setData, onBack }) {
         // Cache holdings
         const updated = {
           ...data,
-          accounts: data.accounts.map(a => a.cik === accountCik ? { ...a, cachedHoldings: result.holdings, cachedFilingInfo: result.filingInfo, lastFetched: new Date().toISOString() } : a),
+          accounts: data.accounts.map(a => a.id === accountId ? { ...a, cachedHoldings: result.holdings, cachedFilingInfo: result.filingInfo, lastFetched: new Date().toISOString() } : a),
         };
         setData(updated);
         saveData(updated);
       } catch (e) {
         console.error("Fetch failed:", e);
-        const sample = generateSampleHoldings({ name: account.name, cik: account.cik, type: account.type });
+        const sample = generateSampleHoldings({ name: account.name, cik: account.cik, type: account.type || "Hedge Fund" });
         setHoldings(sample.holdings);
         setFilingInfo(sample.filingInfo);
       }
@@ -1687,12 +1709,12 @@ function AccountDetail({ accountCik, data, setData, onBack }) {
     })();
 
     return () => { cancelled = true; };
-  }, [accountCik]);
+  }, [accountId]);
 
   const updateAccount = (changes) => {
     const updated = {
       ...data,
-      accounts: data.accounts.map(a => a.cik === accountCik ? { ...a, ...changes } : a),
+      accounts: data.accounts.map(a => a.id === accountId ? { ...a, ...changes } : a),
     };
     setData(updated);
     saveData(updated);
@@ -1737,9 +1759,9 @@ function AccountDetail({ accountCik, data, setData, onBack }) {
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 22, fontWeight: 700, color: "#d0e8dc" }}>{account.name}</div>
         <div style={{ fontSize: 13, color: "#6a8a9a", marginTop: 4 }}>
-          {account.type} · CIK {account.cik}
+          {account.type || "Account"}{account.cik ? ` · CIK ${account.cik}` : ""}
           {account.lastFetched && <span style={{ marginLeft: 8, fontSize: 11, color: "#3a5a6a" }}>Last fetched: {new Date(account.lastFetched).toLocaleDateString()}</span>}
-          <button onClick={refreshHoldings} style={{ marginLeft: 8, background: "none", border: "none", color: "#4fc3f7", fontSize: 11, cursor: "pointer" }}>↻ Refresh</button>
+          {account.cik && <button onClick={refreshHoldings} style={{ marginLeft: 8, background: "none", border: "none", color: "#4fc3f7", fontSize: 11, cursor: "pointer" }}>↻ Refresh</button>}
         </div>
       </div>
 
@@ -1785,6 +1807,12 @@ function AccountDetail({ accountCik, data, setData, onBack }) {
         </div>
       )}
 
+      {noCik && !loading && (activeTab === "holdings" || activeTab === "overlap") && (
+        <div style={{ background: "rgba(255,183,77,0.08)", border: "1px solid rgba(255,183,77,0.25)", borderRadius: 8, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: "#ffb74d" }}>
+          No CIK on file — showing simulated holdings for overlap analysis. Add a CIK to pull live 13F data from SEC EDGAR.
+        </div>
+      )}
+
       {!loading && activeTab === "holdings" && (
         <div style={{ display: "grid", gap: 16 }}>
           <HoldingsTable holdings={holdings} filingInfo={filingInfo} />
@@ -1799,7 +1827,7 @@ function AccountDetail({ accountCik, data, setData, onBack }) {
       )}
 
       {activeTab === "campaigns" && (
-        <CampaignManager data={data} setData={setData} currentAccount={accountCik} />
+        <CampaignManager data={data} setData={setData} currentAccount={accountId} />
       )}
     </div>
   );
@@ -1826,8 +1854,8 @@ function Dashboard({ data, setData, onLogout }) {
     setView("affiliate");
   };
 
-  const handleSelectAccount = (cik) => {
-    setSelectedAccount(cik);
+  const handleSelectAccount = (accountId) => {
+    setSelectedAccount(accountId);
     setView("account");
   };
 
@@ -1843,11 +1871,12 @@ function Dashboard({ data, setData, onLogout }) {
         merged.salespeople.push(sp);
       }
     });
-    // Add/update accounts (dedup by CIK)
+    // Add/update accounts (dedup by name + salesperson)
     newData.accounts.forEach(acct => {
       const spName = newData.salespeople.find(s => s.id === acct.salesperson)?.name;
       const mergedSP = merged.salespeople.find(s => s.name === spName);
-      const existing = merged.accounts.find(a => a.cik === acct.cik);
+      const mergedSPId = mergedSP?.id || acct.salesperson;
+      const existing = merged.accounts.find(a => a.name === acct.name && a.salesperson === mergedSPId);
       if (existing) {
         // Merge contacts and paying flags
         acct.contacts.forEach(c => {
@@ -1856,9 +1885,9 @@ function Dashboard({ data, setData, onLogout }) {
           }
         });
         Object.assign(existing.paying, acct.paying);
-        if (mergedSP) existing.salesperson = mergedSP.id;
+        if (acct.cik && !existing.cik) existing.cik = acct.cik;
       } else {
-        merged.accounts.push({ ...acct, salesperson: mergedSP?.id || acct.salesperson });
+        merged.accounts.push({ ...acct, salesperson: mergedSPId });
       }
     });
     setData(merged);
@@ -1934,7 +1963,7 @@ function Dashboard({ data, setData, onLogout }) {
               <AffiliateDetail brandName={selectedAffiliate} accounts={spAccounts} onSelectAccount={handleSelectAccount} onBack={handleBackToGrid} />
             )}
             {view === "account" && selectedAccount && (
-              <AccountDetail accountCik={selectedAccount} data={data} setData={(d) => { setData(d); }} onBack={handleBackToAffiliate} />
+              <AccountDetail accountId={selectedAccount} data={data} setData={(d) => { setData(d); }} onBack={handleBackToAffiliate} />
             )}
           </div>
         )}
@@ -1960,8 +1989,9 @@ function App() {
       importedData.accounts.forEach(acct => {
         const spName = importedData.salespeople.find(s => s.id === acct.salesperson)?.name;
         const mergedSP = merged.salespeople.find(s => s.name === spName);
-        if (!merged.accounts.find(a => a.cik === acct.cik)) {
-          merged.accounts.push({ ...acct, salesperson: mergedSP?.id || acct.salesperson });
+        const mergedSPId = mergedSP?.id || acct.salesperson;
+        if (!merged.accounts.find(a => a.name === acct.name && a.salesperson === mergedSPId)) {
+          merged.accounts.push({ ...acct, salesperson: mergedSPId });
         }
       });
       setData(merged);
