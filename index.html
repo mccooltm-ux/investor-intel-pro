@@ -606,8 +606,6 @@ const SECTOR_COLORS = {
 };
 
 // Formatting utilities (from global scope)
-const formatValue = window.formatValue;
-const formatShares = window.formatShares;
 
 // ============================================================
 // COVERAGE OVERLAP SCORING ENGINE
@@ -1175,7 +1173,7 @@ function SectorBreakdown({ holdings }) {
               {data.holdings.sort((a, b) => b.value - a.value).slice(0, 3).map((h, i) => (
                 <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#8899aa", padding: "2px 0" }}>
                   <span>{h.ticker || h.nameOfIssuer?.slice(0, 20)}</span>
-                  <span className="mono" style={{ color: "#7ec8a0" }}>{formatValue(h.value * 1000)}</span>
+                  <span className="mono" style={{ color: "#7ec8a0" }}>{window.formatValue(h.value * 1000)}</span>
                 </div>
               ))}
             </div>
@@ -1220,7 +1218,7 @@ function CoverageOverlap({ holdings }) {
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  {!o.universal && o.matchedCount > 0 && <span style={{ fontSize: 11, color: "#5a7a8a" }}>{o.matchedCount} pos · {formatValue(o.matchedValue)}</span>}
+                  {!o.universal && o.matchedCount > 0 && <span style={{ fontSize: 11, color: "#5a7a8a" }}>{o.matchedCount} pos · {window.formatValue(o.matchedValue)}</span>}
                   <span style={{ padding: "3px 10px", borderRadius: 4, fontSize: 10, fontWeight: 600, textTransform: "uppercase", background: s.badgeBg, color: s.badge }}>{o.relevance}</span>
                   <span style={{ fontSize: 10, color: "#4a6a7a", transform: isExp ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>▼</span>
                 </div>
@@ -1231,7 +1229,7 @@ function CoverageOverlap({ holdings }) {
                   {o.matchedHoldings.length > 0 && o.matchedHoldings.map((h, i) => (
                     <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "3px 0", color: "#8899aa" }}>
                       <span><span style={{ color: "#d0e8dc", fontWeight: 500 }}>{h.ticker || h.nameOfIssuer?.slice(0, 20)}</span> <span style={{ fontSize: 9, color: "#4a6a7a" }}>{h.matchType}</span></span>
-                      <span className="mono" style={{ color: "#7ec8a0" }}>{formatValue(h.value * 1000)}</span>
+                      <span className="mono" style={{ color: "#7ec8a0" }}>{window.formatValue(h.value * 1000)}</span>
                     </div>
                   ))}
                 </div>
@@ -1307,8 +1305,8 @@ function HoldingsTable({ holdings, filingInfo, searchTerm: initSearch }) {
                   <td style={{ padding: "6px 10px", fontSize: 12, color: "#d0e8dc" }}>{h.nameOfIssuer}</td>
                   <td className="mono" style={{ padding: "6px 10px", fontSize: 11, color: mapped ? "#7ec8a0" : "#4a6a7a" }}>{mapped?.ticker || "—"}</td>
                   <td style={{ padding: "6px 10px", fontSize: 11, color: SECTOR_COLORS[mapped?.sector] || "#4a6a7a" }}>{mapped?.sector || "—"}</td>
-                  <td className="mono" style={{ padding: "6px 10px", fontSize: 12, color: "#7ec8a0", textAlign: "right" }}>{formatValue(h.value * 1000)}</td>
-                  <td className="mono" style={{ padding: "6px 10px", fontSize: 11, color: "#8899aa", textAlign: "right" }}>{formatShares(h.shrsOrPrnAmt?.sshPrnamt)}</td>
+                  <td className="mono" style={{ padding: "6px 10px", fontSize: 12, color: "#7ec8a0", textAlign: "right" }}>{window.formatValue(h.value * 1000)}</td>
+                  <td className="mono" style={{ padding: "6px 10px", fontSize: 11, color: "#8899aa", textAlign: "right" }}>{window.formatShares(h.shrsOrPrnAmt?.sshPrnamt)}</td>
                 </tr>
               );
             })}
